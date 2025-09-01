@@ -4,12 +4,14 @@ from models.db_models import Sales, SalesBase, SalesPublic, SalesUpdate
 
 
 async def get_all_sales(common_params: dict, session: SessionDep):
-    sales = session.exec(select(Sales).offset(common_params["skip"]).limit(common_params["limit"])).all()
+    res = await session.exec(select(Sales).offset(common_params["skip"]).limit(common_params["limit"]))
+    sales = res.all()
     return sales
 
 
 async def get_sale_by_id(id_sale: int, session: SessionDep):
-    sale = session.exec(select(Sales).where(Sales.id_sale == id_sale)).first()
+    res = await session.exec(select(Sales).where(Sales.id_sale == id_sale))
+    sale = res.first()
     if sale:
         return sale
     return None
@@ -24,7 +26,7 @@ async def creater_sale(sale_date: SalesBase, session: SessionDep):
 
 
 async def update_sale(id_sale: int, sale_update: SalesUpdate, session: SessionDep):
-    sale = session.get(Sales, id_sale)
+    sale = await session.get(Sales, id_sale)
     if sale:
         sale_data = sale_update.model_dump(exclude_unset=True)
         sale.sqlmodel_update(sale_data)
@@ -36,7 +38,7 @@ async def update_sale(id_sale: int, sale_update: SalesUpdate, session: SessionDe
 
 
 async def delete_sale(id_sale, session: SessionDep):
-    sale = session.get(Sales, id_sale)
+    sale = await session.get(Sales, id_sale)
     if sale:
         session.delete(sale)
         session.commit()

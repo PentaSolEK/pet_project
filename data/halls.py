@@ -4,7 +4,7 @@ from data.init_db import SessionDep
 
 from sqlmodel import select
 
-from models.db_models import Hall, HallBase, HallPublic, HallUpdate
+from models.db_models import Hall, HallBase, HallUpdate
 
 
 
