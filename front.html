@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Database Viewer</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f8f9fa;
+      padding: 20px;
+    }
+    h2 {
+      margin-top: 30px;
+    }
+    .container {
+      display: grid;
+      gap: 40px;
+    }
+    .section {
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    input, button {
+      padding: 8px;
+      margin: 4px 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    pre {
+      background: #f1f1f1;
+      padding: 10px;
+      overflow-x: auto;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>База данных</h1>
+  <div class="container" id="app"></div>
+
+  <script>
+    const BASE_URL = "http://127.0.0.1:8000";
+
+    const entities = ['concerts', 'musicgroups', 'tickets', 'halls'];
+
+    const app = document.getElementById('app');
+
+    entities.forEach(entity => {
+      const section = document.createElement('div');
+      section.className = 'section';
+
+      section.innerHTML = `
+        <h2>${entity}</h2>
+
+        <div>
+          <strong>Поиск по ID:</strong><br>
+          <input type="number" id="${entity}-id" placeholder="Введите ID">
+          <button onclick="getById('${entity}')">Найти</button>
+          <pre id="${entity}-single">Результат: </pre>
+        </div>
+
+        <div>
+          <strong>Создать новую запись:</strong><br>
+          <textarea id="${entity}-create" rows="5" placeholder='Введите JSON объект'></textarea>
+          <button onclick="createRecord('${entity}')">Создать</button>
+        </div>
+
+        <div>
+          <strong>Все записи:</strong>
+          <button onclick="loadAll('${entity}')">Обновить</button>
+          <pre id="${entity}-all">Загрузка...</pre>
+        </div>
+      `;
+
+      app.appendChild(section);
+      loadAll(entity);
+    });
+
+    async function loadAll(entity) {
+      try {
+        const res = await fetch(`${BASE_URL}/${entity}`);
+        const json = await res.json();
+        document.getElementById(`${entity}-all`).textContent = JSON.stringify(json, null, 2);
+      } catch (err) {
+        document.getElementById(`${entity}-all`).textContent = 'Ошибка загрузки данных';
+      }
+    }
+
+    async function getById(entity) {
+      const id = document.getElementById(`${entity}-id`).value;
+      if (!id) return;
+      try {
+        const res = await fetch(`${BASE_URL}/${entity}/${id}`);
+        const json = await res.json();
+        document.getElementById(`${entity}-single`).textContent = JSON.stringify(json, null, 2);
+      } catch (err) {
+        document.getElementById(`${entity}-single`).textContent = 'Ошибка при поиске';
+      }
+    }
+
+    async function createRecord(entity) {
+      const raw = document.getElementById(`${entity}-create`).value;
+      try {
+        const payload = JSON.parse(raw);
+        const res = await fetch(`${BASE_URL}/${entity}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        alert('Создано: ' + JSON.stringify(json));
+        loadAll(entity);
+      } catch (err) {
+        alert('Ошибка создания записи. Проверьте JSON.');
+      }
+    }
+  </script>
+</body>
+</html>
