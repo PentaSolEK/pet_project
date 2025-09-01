@@ -1,8 +1,12 @@
+<<<<<<< HEAD
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException
 from fastapi.params import Depends
 
+=======
+from fastapi import APIRouter, HTTPException
+>>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
 from data.init_db import SessionDep
 from sqlmodel import select
 
@@ -34,7 +38,11 @@ async def create_concert(concert: ConcertBase, session: SessionDep):
 
 
 @router.put("/{concert_id}", response_model=ConcertPubic)
+<<<<<<< HEAD
 async def update_concert(concert_id: int, concert_update: Annotated[ConcertUpdate, Depends()], session: SessionDep):
+=======
+async def update_concert(concert_id: int, concert_update: ConcertUpdate, session: SessionDep):
+>>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
     result = await concerts.update_concert(concert_id, concert_update, session)
     if result:
         return result

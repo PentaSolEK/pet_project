@@ -4,7 +4,11 @@ from data.init_db import SessionDep
 
 from sqlmodel import select
 
+<<<<<<< HEAD
 from models.db_models import Hall, HallBase, HallUpdate
+=======
+from models.db_models import Hall, HallBase, HallPublic, HallUpdate
+>>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
 
 
 

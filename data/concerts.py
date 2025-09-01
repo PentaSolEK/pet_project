@@ -6,7 +6,11 @@ from data.init_db import SessionDep
 
 from sqlmodel import select
 
+<<<<<<< HEAD
 from models.db_models import Concert, ConcertBase, ConcertUpdate
+=======
+from models.db_models import Concert, ConcertBase, ConcertPubic, ConcertUpdate
+>>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
 
 
 async def get_all_concerts(common_param: dict, session: SessionDep):
