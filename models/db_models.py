@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel, Field
 from datetime import datetime
-from pydantic import EmailStr
+from pydantic import EmailStr, BaseModel
 
 class MusicgroupsBase(SQLModel):
     name: str
@@ -104,29 +104,22 @@ class SalesUpdate(SQLModel):
     sale_date: datetime | None = None
 
 
-<<<<<<< HEAD
+
 class UsersBase(SQLModel):
     name: str
     surname: str
     age: int = Field(gt=0, le=100)
-=======
-class UserBase(SQLModel):
-    name: str
-    surname: str
-    age: int = Field(gt=0, le=100)
     id_user: int = Field(default=None, primary_key=True)
->>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
     email: EmailStr = Field(min_length=3, max_length=100)
-    hashed_pass: str = Field(min_length=3, max_length=100)
     is_active: bool = Field(default=True)
 
 
-<<<<<<< HEAD
 class Users(UsersBase, table=True):
+    hashed_pass: str = Field(min_length=3, max_length=100)
     id_user: int = Field(default=None, primary_key=True)
 
 
-class UserPublic(UsersBase):
+class UsersPublic(UsersBase):
     id_user: int
 
 
@@ -137,7 +130,13 @@ class UsersUpdate(SQLModel):
     email: EmailStr | None = None
     hashed_pass: str | None = None
     is_active: bool | None = None
-=======
-class User(UserBase, table=True):
-    id_user: int = Field(default=None, primary_key=True)
->>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenData(BaseModel):
+    email: EmailStr
+
