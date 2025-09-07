@@ -22,8 +22,8 @@ async def get_musicgroup_by_id(session: SessionDep, musicgroup_id: int):
 async def create_group(group: MusicgroupsBase, session: SessionDep):
     db_group = Musicgroups.model_validate(group)
     session.add(db_group)
-    session.commit()
-    session.refresh(db_group)
+    await session.commit()
+    await session.refresh(db_group)
     return db_group
 
 

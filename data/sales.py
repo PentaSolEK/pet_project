@@ -20,8 +20,8 @@ async def get_sale_by_id(id_sale: int, session: SessionDep):
 async def creater_sale(sale_date: SalesBase, session: SessionDep):
     db_sale = Sales.model_validate(sale_date)
     session.add(db_sale)
-    session.commit()
-    session.refresh(db_sale)
+    await session.commit()
+    await session.refresh(db_sale)
     return db_sale
 
 

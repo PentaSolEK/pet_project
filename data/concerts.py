@@ -23,8 +23,8 @@ async def get_concert_by_id(concert_id: int, session: SessionDep):
 async def create_conceert(concert: ConcertBase, session: SessionDep):
     db_concert = Concert.model_validate(concert)
     session.add(db_concert)
-    session.commit()
-    session.refresh(db_concert)
+    await session.commit()
+    await session.refresh(db_concert)
     return db_concert
 
 

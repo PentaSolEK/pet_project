@@ -9,11 +9,7 @@ import random
 # Инициализация Faker
 fake = Faker('ru_RU')
 
-<<<<<<< HEAD
 load_dotenv(r"/data/.env")
-=======
-load_dotenv(r"C:\Users\pazhi\PycharmProjects\projects\.venv\concert_app\data\CONCERT_DB.env")
->>>>>>> b05e70515c495ef1fdffd9205744cc93d4447f51
 
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')

@@ -28,7 +28,7 @@ async def get_concert(concert_id: int, session: SessionDep):
 
 
 @router.post("/", response_model=ConcertPubic)
-async def create_concert(concert: ConcertBase, session: SessionDep):
+async def create_concert(concert: Annotated[ConcertBase, Depends()], session: SessionDep):
     result = await concerts.create_conceert(concert, session)
     return result
 

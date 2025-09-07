@@ -106,20 +106,24 @@ class SalesUpdate(SQLModel):
 
 
 class UsersBase(SQLModel):
-    name: str
-    surname: str
-    age: int = Field(gt=0, le=100)
-    id_user: int = Field(default=None, primary_key=True)
-    email: EmailStr = Field(min_length=3, max_length=100)
+    name: str | None = None
+    surname: str | None = None
+    age: int | None = Field(gt=0, le=100, default=None)
+    email: EmailStr
+    hashed_pass: str = Field(min_length=3, max_length=100)
     is_active: bool = Field(default=True)
 
 
 class Users(UsersBase, table=True):
-    hashed_pass: str = Field(min_length=3, max_length=100)
     id_user: int = Field(default=None, primary_key=True)
 
 
-class UsersPublic(UsersBase):
+class UsersPublic(SQLModel):
+    name: str | None
+    surname: str | None
+    age: int | None = Field(gt=0, le=100)
+    email: EmailStr
+    is_active: bool = Field(default=True)
     id_user: int
 
 
@@ -130,6 +134,11 @@ class UsersUpdate(SQLModel):
     email: EmailStr | None = None
     hashed_pass: str | None = None
     is_active: bool | None = None
+
+
+class UsersRegistered(SQLModel):
+    email: EmailStr
+    password: str = Field(min_length=3, max_length=20)
 
 
 class Token(BaseModel):
