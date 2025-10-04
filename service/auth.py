@@ -2,7 +2,7 @@ import os
 from typing import Annotated
 
 from dotenv import load_dotenv
-from passlib.context import CryptContext
+from pwdlib import PasswordHash
 from fastapi.security import OAuth2PasswordBearer
 import jwt
 from pydantic import EmailStr
@@ -19,17 +19,17 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+password_hash = PasswordHash.recommended()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 
 
 
 def get_password_hash(password):
-    return pwd_context.hash(password)
+    return password_hash.hash(password)
 
 
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    return password_hash.verify(plain_password, hashed_password)
 
 
 async def authenticate_user(email: EmailStr, password: str, session: SessionDep):

@@ -104,7 +104,6 @@ class SalesUpdate(SQLModel):
     sale_date: datetime | None = None
 
 
-
 class UsersBase(SQLModel):
     name: str | None = None
     surname: str | None = None

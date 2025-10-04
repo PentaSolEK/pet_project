@@ -23,6 +23,3 @@ async def add_user_to_db(user_data: UsersRegistered, session: SessionDep):
     return db_user
 
 
-async def main(session: SessionDep):
-    data = UsersRegistered(email="axczcs@mail.com", password="12345")
-    res = await add_user_to_db(data, session)

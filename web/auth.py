@@ -1,14 +1,14 @@
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import Depends, APIRouter, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from faststream.rabbit.fastapi import RabbitRouter
 
 from data.init_db import SessionDep
 from data import users
-from models.db_models import UsersPublic, Users, Token, UsersBase, UsersRegistered
+from models.db_models import UsersPublic, Users, Token, UsersRegistered
 from service import auth as service
 
 
