@@ -5,7 +5,7 @@ from data.init_db import SessionDep
 
 
 from models.db_models import TickettypesBase, TickettypesPublic, TickettypesUpdate
-from data import tickets
+from data import tickets_type
 from service.common_params import commonDep
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])

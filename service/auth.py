@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from data import users
 from data.init_db import SessionDep
-from models.db_models import TokenData
+from models.other_models import TokenData
 
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")

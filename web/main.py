@@ -1,9 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from data import users
-from web import groups, tickets, halls, concerts, sales, auth
-
+from web import groups, tickets, halls, concerts, sales, auth, user_functions
 
 
 app = FastAPI(title="Ticket shop")
@@ -22,8 +20,7 @@ app.include_router(halls.router)
 app.include_router(concerts.router)
 app.include_router(sales.router)
 app.include_router(auth.router)
-
-
+app.include_router(user_functions.router)
 
 @app.get("/")
 def top_page():

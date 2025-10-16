@@ -3,7 +3,7 @@ from pydantic import EmailStr
 from data.init_db import SessionDep
 from sqlmodel import select
 
-from models.db_models import Users, UsersBase, UsersRegistered
+from models.db_models import Users, UsersBase, UsersRegistered, UsersUpdate
 
 
 async def get_user_by_email(email: EmailStr, session: SessionDep):
@@ -23,3 +23,13 @@ async def add_user_to_db(user_data: UsersRegistered, session: SessionDep):
     return db_user
 
 
+async def update_user(user_id: int, user_update_data: UsersUpdate, session: SessionDep):
+    user = await session.get(Users, user_id)
+    if user:
+        user_data = user_update_data.model_dump(exclude_unset=True)
+        user.sqlmodel_update(user_data)
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+    return None

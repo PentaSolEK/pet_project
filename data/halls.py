@@ -1,13 +1,8 @@
 from fastapi import HTTPException
 
 from data.init_db import SessionDep
-
 from sqlmodel import select
-
-
 from models.db_models import Hall, HallBase, HallUpdate
-
-
 
 
 async def get_all_halls(common_params: dict, session: SessionDep):

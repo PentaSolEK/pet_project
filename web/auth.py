@@ -1,29 +1,27 @@
 from datetime import timedelta
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
-from faststream.rabbit.fastapi import RabbitRouter
+
 
 from data.init_db import SessionDep
 from data import users
-from models.db_models import UsersPublic, Users, Token, UsersRegistered
+from models.db_models import UsersPublic, Users, UsersRegistered
+from models.other_models import Token
 from service import auth as service
+from service.log import logger
 
-
-router = RabbitRouter(prefix="/auth", tags=["login"])
-
+router = APIRouter(prefix="/auth", tags=["login"])
 
 @router.post("/register", response_model=UsersPublic)
 async def register(user_data: Annotated[UsersRegistered, Depends()], session: SessionDep):
     hashed_password = service.get_password_hash(user_data.password)
     user_data.password = hashed_password
     user_in_db = await users.add_user_to_db(user_data, session)
-    await router.broker.publish(
-        f"Зарегистрирован новый пользователь {user_data.email}",
-        queue="registration"
-    )
+    logger.info(f"Зарегистрирован новый пользователь {user_data.email}")
     return user_in_db
 
 

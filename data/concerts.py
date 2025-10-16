@@ -5,20 +5,24 @@ from data.init_db import SessionDep
 from models.db_models import Concert, ConcertBase, ConcertUpdate
 
 
-
 async def get_all_concerts(common_param: dict, session: SessionDep):
     res = await session.exec(select(Concert).offset(common_param["skip"]).limit(common_param["limit"]))
     concerts = res.all()
     return concerts
 
-
 async def get_concert_by_id(concert_id: int, session: SessionDep):
     res = await session.exec(select(Concert).where(Concert.id_concert == concert_id))
+    concert = res.first()
+    if concert:
+        return concert
+    return None
+
+async def get_concert_by_name(concert_name: str, session: SessionDep):
+    res = await session.exec(select(Concert).where(Concert.name == concert_name))
     concert_name = res.first()
     if concert_name:
         return concert_name
     return None
-
 
 async def create_conceert(concert: ConcertBase, session: SessionDep):
     db_concert = Concert.model_validate(concert)

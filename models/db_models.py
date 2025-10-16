@@ -42,6 +42,15 @@ class TickettypesUpdate(SQLModel):
     price: int | None = None
 
 
+class TicketsBase(SQLModel):
+    id_concert: int
+    id_hall_ticketTypes: int
+
+
+class Tickets(TicketsBase, table=True):
+    id_ticket: int = Field(default=None, primary_key=True)
+
+
 class HallBase(SQLModel):
     address: str
     phone: str
@@ -80,6 +89,16 @@ class ConcertUpdate(SQLModel):
     name: str | None = None
     date: str | None = None
     id_hall: int | None = None
+
+
+class Hall_TicketTypesBase(SQLModel):
+    amount: int
+    id_hall: int
+    id_type: int
+
+
+class Hall_TicketTypes(Hall_TicketTypesBase, table=True):
+    id_hall_ticketTypes: int = Field(default=None, primary_key=True)
 
 
 class SalesBase(SQLModel):
@@ -140,11 +159,5 @@ class UsersRegistered(SQLModel):
     password: str = Field(min_length=3, max_length=20)
 
 
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
-
-class TokenData(BaseModel):
-    email: EmailStr
 
