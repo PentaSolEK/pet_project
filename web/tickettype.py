@@ -13,12 +13,13 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 @router.get("/")
 async def get_all_tickets_types(common_params: commonDep, session: SessionDep):
-    result = await tickets.get_all_tickets_types(common_params, session)
+    result = await tickets_type.get_all_tickets_types(common_params, session)
     return result
+
 
 @router.get("/{ticket_id}")
 async def get_by_id(session: SessionDep, ticket_id: int):
-    result = await tickets.get_tickets_type_by_id(session, ticket_id)
+    result = await tickets_type.get_tickets_type_by_id(session, ticket_id)
     if result:
         return result
     raise HTTPException(status_code=404, detail="Ticket not found")
@@ -26,13 +27,13 @@ async def get_by_id(session: SessionDep, ticket_id: int):
 
 @router.post("/tickettype", response_model=TickettypesPublic)
 async def create_ticket_type(ticket_type: Annotated[TickettypesBase, Depends()], session: SessionDep):
-    result = await tickets.create_ticket_type(ticket_type, session)
+    result = await tickets_type.create_ticket_type(ticket_type, session)
     return result
 
 
 @router.put("/{ticket_id}", response_model=TickettypesPublic)
 async def update_ticket(ticket_id: int, ticket_update: TickettypesUpdate, session: SessionDep):
-    result = await tickets.update_ticket(ticket_id, ticket_update, session)
+    result = await tickets_type.update_ticket(ticket_id, ticket_update, session)
     if result:
         return result
     raise HTTPException(status_code=404, detail="ticket not found")
@@ -40,7 +41,7 @@ async def update_ticket(ticket_id: int, ticket_update: TickettypesUpdate, sessio
 
 @router.delete("/{ticket_id}", response_model=TickettypesPublic)
 async def delete_ticket(ticket_id: int, session: SessionDep):
-    result = await tickets.delete_ticket(ticket_id, session)
+    result = await tickets_type.delete_ticket(ticket_id, session)
     if result:
         return result.name
     raise HTTPException(status_code=404, detail="ticket not found")

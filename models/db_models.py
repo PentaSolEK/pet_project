@@ -72,7 +72,7 @@ class HallUpdate(SQLModel):
 
 
 class ConcertBase(SQLModel):
-    name: str
+    name: str = Field(description="Название концерта")
     date: datetime = Field(index=True)
     id_hall: int
 

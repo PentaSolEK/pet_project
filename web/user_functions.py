@@ -7,7 +7,7 @@ from data.init_db import SessionDep
 from models.other_models import BuyTicketForm
 from data.concerts import get_concert_by_name
 from data.users import get_user_by_email, update_user
-from models.db_models import UsersUpdate, SalesBase, Hall_TicketTypesBase
+from models.db_models import UsersUpdate, SalesBase
 from data.sales import creater_sale
 from data.tickets_type import get_ticket_type_by_name
 from data.tickets import get_ticket
@@ -25,7 +25,8 @@ async def buy_ticket(data: Annotated[BuyTicketForm, Depends()], session:SessionD
                                                         data.ticket_type,
                                                         data.user_mail,
                                                         data.user_name,
-                                                        data.user_last_name, data.user_age)
+                                                        data.user_last_name,
+                                                        data.user_age)
     user = await get_user_by_email(user_mail, session)
     if not user:
         raise HTTPException(status_code=404, detail="User is not registered!")
@@ -41,12 +42,12 @@ async def buy_ticket(data: Annotated[BuyTicketForm, Depends()], session:SessionD
     concert_id = concert_data.id_concert
     hall_id = concert_data.id_hall
 
-    ticket_type = await get_ticket_type_by_name(ticket_type, session)
-    if not ticket_type:
-        raise HTTPException(status_code=404, detail=f"Ticket type {concert_data.ticket_type} not found!")
+    ticket_type_data = await get_ticket_type_by_name(ticket_type, session)
+    if not ticket_type_data:
+        raise HTTPException(status_code=404, detail=f"Ticket type {ticket_type} not found!")
 
     hall_ticket_type_data = await get_hall_ticket_type(id_hall=hall_id,
-                                                       id_ticket_type=ticket_type.id_type,
+                                                       id_ticket_type=ticket_type_data.id_type,
                                                        session=session)
     if not hall_ticket_type_data:
         raise HTTPException(status_code=404, detail=f"Hall ticket type not found!")

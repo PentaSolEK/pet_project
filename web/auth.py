@@ -13,6 +13,7 @@ from models.db_models import UsersPublic, Users, UsersRegistered
 from models.other_models import Token
 from service import auth as service
 from service.log import logger
+from service.fs_broker import broker
 
 router = APIRouter(prefix="/auth", tags=["login"])
 
@@ -21,6 +22,10 @@ async def register(user_data: Annotated[UsersRegistered, Depends()], session: Se
     hashed_password = service.get_password_hash(user_data.password)
     user_data.password = hashed_password
     user_in_db = await users.add_user_to_db(user_data, session)
+    await broker.publish(
+        queue="user_registered",
+        message=user_data.email
+    )
     logger.info(f"Зарегистрирован новый пользователь {user_data.email}")
     return user_in_db
 
