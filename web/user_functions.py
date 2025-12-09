@@ -5,14 +5,14 @@ from typing import Annotated
 
 from data.init_db import SessionDep
 from models.other_models import BuyTicketForm
-from data.concerts import get_concert_by_name
+from data.concerts import get_concert_by_name, get_concert_id_by_musicgroup, get_concert_by_id
 from data.users import get_user_by_email, update_user
-from models.db_models import UsersUpdate, SalesBase
+from models.db_models import UsersUpdate, SalesBase, Concert
 from data.sales import creater_sale
 from data.tickets_type import get_ticket_type_by_name
 from data.tickets import get_ticket
 from data.hall_ticket_type import get_hall_ticket_type
-
+from data.groups import get_musicgroup_by_name
 
 router = APIRouter(prefix="/user_funcs", tags=["user_funcs"])
 
@@ -60,3 +60,21 @@ async def buy_ticket(data: Annotated[BuyTicketForm, Depends()], session:SessionD
                           count=ticket_count, sale_date=datetime.now())
     sale = await creater_sale(sale_data, session)
     return sale
+
+@router.get("/filter_concert_buy_group", description="Возвращает все концерты выбранной группы")
+async def get_concert_by_group_name(musicgroup: str, session: SessionDep) -> list[Concert]:
+    musicgroup_in_db = await get_musicgroup_by_name(musicgroup, session)
+    if not musicgroup_in_db:
+        raise HTTPException(status_code=404, detail=f"Музыкальная группа {musicgroup} не найдена!")
+    musicgroup_id = musicgroup_in_db.id_group
+    concerts = await get_concert_id_by_musicgroup(musicgroup_id, session)
+    if not concerts:
+        raise HTTPException(status_code=404, detail=f"Концерты музыкальной группы {musicgroup} не найдены!")
+    concerts_lst: list[Concert] = []
+    for concert in concerts:
+        concerts_lst.append(await get_concert_by_id(concert.id_concert, session))
+    return concerts_lst
+
+
+
+

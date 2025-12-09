@@ -2,7 +2,7 @@ from fastapi import HTTPException, Depends
 from sqlmodel import select
 
 from data.init_db import SessionDep
-from models.db_models import Concert, ConcertBase, ConcertUpdate
+from models.db_models import Concert, ConcertBase, ConcertUpdate, Concert_groups
 
 
 async def get_all_concerts(common_param: dict, session: SessionDep):
@@ -22,6 +22,14 @@ async def get_concert_by_name(concert_name: str, session: SessionDep):
     concert_name = res.first()
     if concert_name:
         return concert_name
+    return None
+
+async def get_concert_id_by_musicgroup(musicgroup_id: int, session: SessionDep):
+    statement = select(Concert_groups).where(Concert_groups.id_group == musicgroup_id)
+    res = await session.exec(statement)
+    concerts = res.all()
+    if concerts:
+        return concerts
     return None
 
 async def create_conceert(concert: ConcertBase, session: SessionDep):

@@ -24,6 +24,15 @@ class MusicgroupsUpdate(SQLModel):
     id_genre: int | None = None
 
 
+class Concert_groupsBase(SQLModel):
+    id_group: int
+    id_concert: int
+
+
+class Concert_groups(Concert_groupsBase):
+    id_concert_groups: int = Field(default=None, primary_key=True)
+
+
 class TickettypesBase(SQLModel):
     type: str
     price: int

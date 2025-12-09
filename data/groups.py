@@ -18,6 +18,14 @@ async def get_musicgroup_by_id(session: SessionDep, musicgroup_id: int):
         return group
     return None
 
+async def get_musicgroup_by_name(musicgroup_name: str, session: SessionDep):
+    res = await session.exec(statement=select(Musicgroups).where(Musicgroups.name == musicgroup_name))
+    group = res.first()
+    if group:
+        return group
+    return None
+
+
 
 async def create_group(group: MusicgroupsBase, session: SessionDep):
     db_group = Musicgroups.model_validate(group)
