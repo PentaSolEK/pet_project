@@ -5,7 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from web import groups, tickettype, halls, concerts, sales, auth, user_functions
-from service.fs_subs.user_sub import router as user_router
+
 from service.fs_broker import broker
 
 @asynccontextmanager
