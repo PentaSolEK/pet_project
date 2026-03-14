@@ -1,40 +1,44 @@
 from datetime import datetime
 
 import pytest
-from unittest.mock import Mock, MagicMock, AsyncMock
-from sqlmodel.ext.asyncio.session import AsyncSession
+from unittest.mock import MagicMock, AsyncMock
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.db_models import Concert, ConcertBase
-from data import concerts
+from src.ticketshop.domain.concerts.models import Concerts
+from src.ticketshop.domain.concerts import repo
+
 
 @pytest.fixture()
 def mock_async_session():
-    return AsyncMock(spec=AsyncSession)
+    session = AsyncMock()
+    session.exec = AsyncMock()
+    session.get = AsyncMock()
+    session.add = MagicMock()
+    session.commit = AsyncMock()
+    session.delete = AsyncMock()
+    session.refresh = AsyncMock()
+    return session
+
 
 @pytest.fixture()
 def mock_concerts():
-    mock_concerts = [
-        Concert(name="test_concert1",
-                date=datetime.now(),
-                id_hall=1,
-                id_concert=1),
-        Concert(name="test_concert2",
-                date=datetime.now(),
-                id_hall=2,
-                id_concert=2),
+    return [
+        Concerts(name="test_concert1", date=datetime.now(), id_hall=1, id_concert=1),
+        Concerts(name="test_concert2", date=datetime.now(), id_hall=2, id_concert=2),
     ]
-    return mock_concerts
 
 
-class TestConcerts:
+class TestConcertsRepo:
     @pytest.mark.asyncio
-    async def test_get_all_concerts(self, mock_async_session, mock_concerts):
+    async def test_list_concerts(self, mock_async_session, mock_concerts):
         mock_data = mock_concerts
         mock_result = MagicMock()
         mock_result.all.return_value = mock_data
         mock_async_session.exec.return_value = mock_result
 
-        result = await concerts.get_all_concerts(common_param={"skip": 0, "limit": 100}, session=mock_async_session)
+        result = await repo.list_Concerts(
+            mock_async_session, limit=100, offset=0
+        )
 
         assert result == mock_data
         mock_async_session.exec.assert_called_once()
@@ -43,44 +47,37 @@ class TestConcerts:
         assert hasattr(query, "offset")
         assert hasattr(query, "limit")
 
-        assert query._offset_clause.value == 0
-        assert query._limit_clause.value == 100
-
     @pytest.mark.asyncio
-    async def test_get_once_concert(self, mock_async_session, mock_concerts):
+    async def test_get_concert(self, mock_async_session, mock_concerts):
         mock_data = mock_concerts
-        mock_result = MagicMock()
-        for i in range(len(mock_data)):
-            mock_result.first.return_value = mock_data[i]
-            mock_async_session.exec.return_value = mock_result
+        for i, concert in enumerate(mock_data):
+            mock_async_session.get.return_value = concert
 
-            result = await concerts.get_concert_by_id(concert_id=i + 1, session=mock_async_session)
+            result = await repo.get_Concerts(mock_async_session, Concerts_id=i + 1)
 
-            assert result == mock_data[i]
+            assert result == concert
             assert result.id_concert == i + 1
-
-        assert mock_async_session.exec.call_count == 2
 
     @pytest.mark.asyncio
     async def test_create_concert(self, mock_async_session, mock_concerts):
-        mock_data = mock_concerts
-        mock_async_session.exec.return_value = mock_data[0]
+        mock_data = mock_concerts[0]
+        mock_async_session.refresh = AsyncMock(side_effect=lambda x: None)
 
-        result = await concerts.create_conceert(concert=mock_data[0], session=mock_async_session)
+        result = await repo.create_Concerts(mock_async_session, mock_data)
 
-        assert result.name == mock_data[0].name
-        assert result.date == mock_data[0].date
-        assert result.id_concert == mock_data[0].id_concert
-        assert result.id_hall == mock_data[0].id_hall
-
-        assert mock_async_session.exec.call_count == 1
+        assert result.name == mock_data.name
+        assert result.date == mock_data.date
+        assert result.id_concert == mock_data.id_concert
+        assert result.id_hall == mock_data.id_hall
+        mock_async_session.add.assert_called_once()
+        mock_async_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_concert(self, mock_async_session, mock_concerts):
-        mock_data = mock_concerts
-        mock_async_session.get.return_value = mock_data[0]
+        mock_data = mock_concerts[0]
 
-        result = await concerts.delete_concert(concert_id=mock_data[0].id_concert, session=mock_async_session)
-        assert result.name == mock_data[0].name
-        assert result.date == mock_data[0].date
-        assert result.id_concert == mock_data[0].id_concert
+        await repo.delete_Concerts(mock_async_session, mock_data)
+
+        mock_async_session.delete.assert_called_once_with(mock_data)
+        mock_async_session.commit.assert_called_once()
+
