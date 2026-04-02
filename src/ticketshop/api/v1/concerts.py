@@ -1,8 +1,16 @@
 from fastapi import APIRouter, HTTPException, status
 from src.ticketshop.api.deps import SessionDep, AdminDep
 from src.ticketshop.domain.concerts.models import Concerts
-from src.ticketshop.domain.concerts.schemas import ConcertPublic, ConcertUpdate, ConcertBase
+from src.ticketshop.domain.concerts.schemas import (
+    ConcertPublic,
+    ConcertUpdate,
+    ConcertBase,
+    PurchaseOptionItem,
+)
 from src.ticketshop.domain.concerts import repo
+from src.ticketshop.domain.hall_zone.repo import list_hall_zones_by_hall
+from src.ticketshop.domain.tickettypes.repo import get_TicketType
+from src.ticketshop.domain.tickets.repo import get_ticket
 
 router = APIRouter(prefix="/concerts", tags=["concerts"])
 
@@ -17,6 +25,31 @@ async def by_name(concert_name: str, session: SessionDep):
         raise HTTPException(404, "Concert not found")
     return c
 
+@router.get("/{concert_id}/purchase-options", response_model=list[PurchaseOptionItem])
+async def purchase_options(concert_id: int, session: SessionDep):
+    concert = await repo.get_Concerts(session, concert_id)
+    if not concert or not concert.id_hall:
+        raise HTTPException(404, "Concert not found or hall not set")
+    zones = await list_hall_zones_by_hall(session, concert.id_hall)
+    out: list[PurchaseOptionItem] = []
+    for zone in zones:
+        tt = await get_TicketType(session, zone.id_type)
+        if not tt:
+            continue
+        trow = await get_ticket(session, concert_id, zone.id_hall_zone)
+        if not trow:
+            continue
+        out.append(
+            PurchaseOptionItem(
+                id_ticket_type=zone.id_type,
+                ticket_type_name=tt.type,
+                id_hall_zone=zone.id_hall_zone,
+                price=trow.price,
+                remains=trow.remains,
+            )
+        )
+    return out
+
 @router.get("/{concert_id}", response_model=ConcertPublic)
 async def get_(concert_id: int, session: SessionDep):
     c = await repo.get_Concerts(session, concert_id)
@@ -26,7 +59,13 @@ async def get_(concert_id: int, session: SessionDep):
 
 @router.post("/", response_model=ConcertPublic, status_code=status.HTTP_201_CREATED)
 async def create_(payload: ConcertBase, session: SessionDep, _: AdminDep):
-    c = Concerts(name=payload.name, date=payload.date, id_hall = payload.id_hall )
+    c = Concerts(
+        name=payload.name,
+        date=payload.date,
+        id_hall=payload.id_hall,
+        description=payload.description,
+        sales_paused=payload.sales_paused,
+    )
     return await repo.create_Concerts(session, c)
 
 @router.patch("/{concert_id}", response_model=ConcertPublic)

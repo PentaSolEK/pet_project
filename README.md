@@ -53,15 +53,11 @@
    - Swagger UI: http://127.0.0.1:8000/docs
    - ReDoc: http://127.0.0.1:8000/redoc
 
-## Устаревшие файлы (вне `src/`)
+   **Веб-интерфейс** (клиентская и админ-панель на HTML/CSS/JS): откройте в браузере корень сервера — http://127.0.0.1:8000/
 
-После перехода на структуру в `src/ticketshop/` следующие каталоги и файлы в корне проекта считаются устаревшими и не используются приложением:
+   Если таблица `concert` уже существовала без полей `description` и `sales_paused`, выполните SQL из `migrations/add_concert_frontend_columns.sql`.
 
-- **`data/`** — старый `init_db.py` (сессия БД теперь в `src/ticketshop/db/session.py`)
-- **`models/`** — старые `db_models.py`, `other_models.py` (модели перенесены в `src/ticketshop/domain/*/models.py`)
-- **`service/`** — старые `auth.py`, `fs_broker.py`, `fs_subs/`, `common_params.py`, `log.py` (логика в `src/ticketshop/core/`, `api/`, `messaging/`)
-- **`web/`** — старый `user_functions.py`
-- **`front.html`** — статическая страница
+   Первого администратора задайте в БД, например: `UPDATE users SET is_admin = 1 WHERE email = 'ваш@email';`
 
-Их можно удалить после проверки, что всё работает из `src/`. Тесты переведены на новую структуру (`src.ticketshop.domain.*`).
+
 

@@ -12,7 +12,7 @@ from src.ticketshop.core.security import (
     create_access_token,
     get_current_user,
 )
-from src.ticketshop.domain.users.schemas import UserCreate, UserPublic, Token
+from src.ticketshop.domain.users.schemas import UserCreate, UserPublic, Token, UserUpdate
 from src.ticketshop.domain.users.repo import get_user_by_email, create_user
 from src.ticketshop.messaging.publishers.events import publish_user_registered
 from src.ticketshop.domain.users.models import User
@@ -56,6 +56,27 @@ async def login(
 
 @router.get("/me", response_model=UserPublic)
 async def me(current_user: CurrentUserDep):
+    return current_user
+
+
+@router.patch("/me", response_model=UserPublic)
+async def patch_me(
+    payload: UserUpdate,
+    session: SessionDep,
+    current_user: CurrentUserDep,
+):
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("password"):
+        current_user.hashed_pass = get_password_hash(data["password"])
+    if "name" in data:
+        current_user.name = data["name"]
+    if "surname" in data:
+        current_user.surname = data["surname"]
+    if "age" in data:
+        current_user.age = data["age"]
+    session.add(current_user)
+    await session.commit()
+    await session.refresh(current_user)
     return current_user
 
 

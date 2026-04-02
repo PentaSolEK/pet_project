@@ -18,14 +18,6 @@ async def get_all_sales(session: SessionDep, limit: int = 50, offset: int = 0):
     return await repo.list_sales(session,limit=limit,offset=offset)
 
 
-@router.get("/{sale_id}")
-async def get_sale_by_id(sale_id: int, session: SessionDep):
-    result = await repo.get_sale(session, sale_id)
-    if not result:
-        raise HTTPException(status_code=404, detail="Sale not found")
-    return result
-
-
 @router.post("/buy", response_model=SalesPublic)
 async def buy_ticket(
     purchase: TicketPurchaseRequest,
@@ -41,6 +33,8 @@ async def buy_ticket(
     concert = await get_Concerts(session, concert_id)
     if not concert:
         raise HTTPException(status_code=404, detail="Concert not found")
+    if concert.sales_paused:
+        raise HTTPException(status_code=400, detail="Ticket sales are paused for this concert")
 
     hall_id = concert.id_hall
     hall_zone = await get_hall_zone(session, hall_id, ticket_type_id)
@@ -68,6 +62,14 @@ async def buy_ticket(
         sale_date=datetime.now(),
     )
     result = await repo.create_sale(session, sale)
+    return result
+
+
+@router.get("/{sale_id}")
+async def get_sale_by_id(sale_id: int, session: SessionDep):
+    result = await repo.get_sale(session, sale_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Sale not found")
     return result
 
 

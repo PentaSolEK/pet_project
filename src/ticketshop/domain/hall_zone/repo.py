@@ -11,3 +11,8 @@ async def get_hall_zone(session: AsyncSession, id_hall: int, id_ticket_type: int
     if hall_ticket_type:
         return hall_ticket_type
     return None
+
+
+async def list_hall_zones_by_hall(session: AsyncSession, id_hall: int) -> list[HallZone]:
+    res = await session.exec(select(HallZone).where(HallZone.id_hall == id_hall))
+    return list(res.all())

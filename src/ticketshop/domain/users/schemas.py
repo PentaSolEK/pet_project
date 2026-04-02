@@ -1,13 +1,15 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     id_user: int
     name: str | None = None
     surname: str | None = None
     age: int | None = Field(default=None, gt=0, le=100)
     email: EmailStr
     is_active: bool = True
+    is_admin: bool = False
 
 
 class UserCreate(BaseModel):

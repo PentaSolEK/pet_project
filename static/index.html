@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ticketmuse — билеты на концерты</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand"><a href="#/">Ticketmuse</a></div>
+      <nav class="nav">
+        <a href="#/" data-route="home">Главная</a>
+        <a href="#/watchlist" data-route="watchlist">Отслеживаемое</a>
+        <a href="#/profile" data-route="profile">Профиль</a>
+        <a href="#/admin" data-route="admin" id="nav-admin" style="display: none">Админ</a>
+        <a href="#/login" id="nav-user" data-route="login">Войти</a>
+      </nav>
+    </header>
+    <main id="app-main"></main>
+    <footer class="app-footer">Ticketmuse · демо-интерфейс</footer>
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>

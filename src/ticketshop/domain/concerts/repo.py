@@ -27,6 +27,10 @@ async def update_Concerts(session: AsyncSession, Concerts: Concerts, payload: Co
         Concerts.date = payload.date
     if payload.id_hall is not None:
         Concerts.id_hall = payload.id_hall
+    if payload.description is not None:
+        Concerts.description = payload.description
+    if payload.sales_paused is not None:
+        Concerts.sales_paused = payload.sales_paused
 
     session.add(Concerts)
     await session.commit()
