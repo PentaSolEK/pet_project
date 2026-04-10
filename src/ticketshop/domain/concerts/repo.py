@@ -1,7 +1,8 @@
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
-from src.ticketshop.domain.concerts.models import Concerts
+from src.ticketshop.domain.concerts.models import Concerts, ConcertGroup
 from src.ticketshop.domain.concerts.schemas import ConcertUpdate
+from src.ticketshop.domain.groups.models import MusicGroups
 
 async def get_Concerts(session: AsyncSession, Concerts_id: int) -> Concerts | None:
     return await session.get(Concerts, Concerts_id)
@@ -41,3 +42,33 @@ async def update_Concerts(session: AsyncSession, Concerts: Concerts, payload: Co
 async def delete_Concerts(session: AsyncSession, Concerts: Concerts) -> None:
     await session.delete(Concerts)
     await session.commit()
+
+
+async def list_groups_for_concert(session: AsyncSession, concert_id: int) -> list[MusicGroups]:
+    res = await session.exec(
+        select(MusicGroups)
+        .join(ConcertGroup, ConcertGroup.id_group == MusicGroups.id_group)
+        .where(ConcertGroup.id_concert == concert_id)
+    )
+    return list(res.all())
+
+
+async def add_group_to_concert(session: AsyncSession, concert_id: int, group_id: int) -> ConcertGroup:
+    link = ConcertGroup(id_concert=concert_id, id_group=group_id)
+    session.add(link)
+    await session.commit()
+    await session.refresh(link)
+    return link
+
+
+async def remove_group_from_concert(session: AsyncSession, concert_id: int, group_id: int) -> bool:
+    res = await session.exec(
+        select(ConcertGroup)
+        .where(ConcertGroup.id_concert == concert_id, ConcertGroup.id_group == group_id)
+    )
+    link = res.first()
+    if not link:
+        return False
+    await session.delete(link)
+    await session.commit()
+    return True

@@ -11,6 +11,8 @@ from src.ticketshop.domain.concerts import repo
 from src.ticketshop.domain.hall_zone.repo import list_hall_zones_by_hall
 from src.ticketshop.domain.tickettypes.repo import get_TicketType
 from src.ticketshop.domain.tickets.repo import get_ticket
+from src.ticketshop.domain.groups.schemas import MusicgroupsPublic
+from src.ticketshop.domain.groups import repo as groups_repo
 
 router = APIRouter(prefix="/concerts", tags=["concerts"])
 
@@ -82,3 +84,29 @@ async def delete_(concert_id: int, session: SessionDep, _: AdminDep):
     if not c:
         raise HTTPException(404, "Concert not found")
     await repo.delete_Concerts(session, c)
+
+
+@router.get("/{concert_id}/groups", response_model=list[MusicgroupsPublic])
+async def list_groups(concert_id: int, session: SessionDep):
+    c = await repo.get_Concerts(session, concert_id)
+    if not c:
+        raise HTTPException(404, "Concert not found")
+    return await repo.list_groups_for_concert(session, concert_id)
+
+
+@router.post("/{concert_id}/groups/{group_id}", status_code=status.HTTP_201_CREATED)
+async def add_group(concert_id: int, group_id: int, session: SessionDep, _: AdminDep):
+    c = await repo.get_Concerts(session, concert_id)
+    if not c:
+        raise HTTPException(404, "Concert not found")
+    g = await groups_repo.get_MusicGroups(session, group_id)
+    if not g:
+        raise HTTPException(404, "Group not found")
+    return await repo.add_group_to_concert(session, concert_id, group_id)
+
+
+@router.delete("/{concert_id}/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_group(concert_id: int, group_id: int, session: SessionDep, _: AdminDep):
+    removed = await repo.remove_group_from_concert(session, concert_id, group_id)
+    if not removed:
+        raise HTTPException(404, "Link not found")

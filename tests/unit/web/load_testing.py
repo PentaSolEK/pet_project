@@ -7,7 +7,7 @@ from asyncio import Semaphore
 
 
 async def get_all_records(table: str, semaphore: Semaphore, skip: int = 0, limit: int = 100):
-    url = f"http://127.0.0.1:8000/{table}/?skip={skip}&limit={limit}"
+    url = f"http://127.0.0.1:8000/api/v1/{table}/?skip={skip}&limit={limit}"
     async with semaphore:
         try:
             async with aiohttp.ClientSession() as session:
@@ -26,7 +26,7 @@ async def main():
     semaphore = Semaphore(100)
     res = await asyncio.gather(
         *[get_all_records(random.choice(
-            ['concerts', 'musicgroups', 'halls', 'sales', 'tickets']),
+            ['concerts', 'groups', 'halls', 'sales']),
             semaphore)
             for _ in range(1000)
         ]

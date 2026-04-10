@@ -50,6 +50,70 @@ a:hover {
   border-bottom: 1px solid var(--border);
 }
 
+.admin-dashboard-hero {
+  background: #f8f9fa;
+  padding: 30px;
+  border-radius: 12px;
+  margin-bottom: 30px;
+  border: 1px solid #dee2e6;
+  text-align: center;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.admin-card-btn {
+  display: block;
+  padding: 20px;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #333;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.admin-card-btn:hover {
+  background: #e9ecef;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.add-btn {
+  background: #28a745;
+  color: white;
+  border-color: #28a745;
+}
+
+.add-btn:hover {
+  background: #218838;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+.admin-table th, .admin-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
+.btn-danger {
+  background: #ff4d4d;
+  color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-danger:hover {
+  background: #cc0000;
+}
 .brand {
   font-weight: 700;
   font-size: 1.15rem;
@@ -295,4 +359,34 @@ footer.app-footer {
   color: var(--muted);
   font-size: 0.85rem;
   border-top: 1px solid var(--border);
+}
+
+/* ----- Concert groups ----- */
+.concert-groups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.concert-groups.detail {
+  margin-bottom: 0.75rem;
+}
+
+.groups-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.group-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+  white-space: nowrap;
 }

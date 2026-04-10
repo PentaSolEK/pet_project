@@ -14,7 +14,7 @@
     return;
   }
 
-  const { Auth, Concerts, Halls, Sales, Watchlist, Admin, getToken } = TicketshopApi;
+  const { Auth, Concerts, Halls, Groups, Sales, Watchlist, Admin, getToken } = TicketshopApi;
 
   /** Увеличивается при каждом переходе; устаревшие async-отрисовки не затирают экран. */
   let routeGeneration = 0;
@@ -107,9 +107,22 @@
 
     if (paintGen !== routeGeneration) return;
 
+    // Загружаем группы для всех концертов параллельно
+    const groupsMap = {};
+    if (concerts.length) {
+      const groupResults = await Promise.allSettled(
+        concerts.map((c) => Concerts.groups(c.id_concert))
+      );
+      concerts.forEach((c, i) => {
+        groupsMap[c.id_concert] =
+          groupResults[i].status === "fulfilled" ? groupResults[i].value : [];
+      });
+    }
+
+    if (paintGen !== routeGeneration) return;
+
     const wrap = el(`<div class="hero"></div>`);
     // На некоторых случаях (кэш/другая разметка) querySelector может вернуть null.
-    // Тогда используем сам корневой элемент.
     const hero = wrap.querySelector(".hero") || wrap;
     hero.innerHTML = `<h1>Мероприятия</h1>
     <p class="muted">Выберите концерт и купите билет онлайн.</p>`;
@@ -120,9 +133,16 @@
     }
     concerts.forEach((c) => {
       const paused = c.sales_paused ? '<span class="badge warn">Продажи приостановлены</span>' : "";
+      const groups = groupsMap[c.id_concert] || [];
+      const groupsHtml = groups.length
+        ? `<div class="concert-groups"><span class="groups-label">Группы:</span> ${groups
+            .map((g) => `<span class="group-tag">${escapeHtml(g.name)}</span>`)
+            .join("")}</div>`
+        : "";
       const card = el(`<article class="card clickable">
       <div class="card-title">${escapeHtml(c.name)}</div>
       <div class="muted">${formatDate(c.date)}</div>
+      ${groupsHtml}
       <div style="margin-top:0.5rem">${paused}</div>
     </article>`);
       card.addEventListener("click", () => navigate("#/concert/" + c.id_concert));
@@ -152,16 +172,29 @@
     }
     if (paintGen !== routeGeneration) return;
 
+    let concertGroups = [];
+    try {
+      concertGroups = await Concerts.groups(id);
+    } catch { /* не блокируем отрисовку */ }
+    if (paintGen !== routeGeneration) return;
+
     const desc = c.description
       ? `<p>${escapeHtml(c.description).replace(/\n/g, "<br>")}</p>`
       : '<p class="muted">Описание пока не указано.</p>';
     const paused = c.sales_paused
       ? '<p><span class="badge warn">Продажи билетов остановлены администратором</span></p>'
       : "";
+    const groupsHtml = concertGroups.length
+      ? `<div class="concert-groups detail">
+           <span class="groups-label">Выступают:</span>
+           ${concertGroups.map((g) => `<span class="group-tag">${escapeHtml(g.name)}</span>`).join("")}
+         </div>`
+      : "";
     wrap.innerHTML = `
     <h1>${escapeHtml(c.name)}</h1>
     <p class="muted">${formatDate(c.date)}</p>
     ${paused}
+    ${groupsHtml}
     ${desc}
     <div class="actions" id="concert-actions"></div>
     <p style="margin-top:1rem"><a href="#/">← На главную</a></p>
@@ -423,26 +456,39 @@
   }
 
   async function renderAdminHome(paintGen) {
-    const user = await loadUser();
-    if (paintGen !== routeGeneration) return;
+  const main = document.getElementById("app-main");
 
-    if (!user || !user.is_admin) {
-      renderLayout('<div class="error-box">Нужны права администратора.</div>', paintGen);
-      return;
-    }
-    renderLayout(
-      `
-    <h1>Админ-панель</h1>
-    <p class="muted">Управление концертами и просмотр продаж.</p>
-    <ul>
-      <li><a href="#/admin/concerts">Концерты — добавить, редактировать, остановить продажи</a></li>
-      <li><a href="#/admin/sales">Недавние покупки</a></li>
-    </ul>
-    <p><a href="#/">← На сайт</a></p>
-  `,
-      paintGen
-    );
-  }
+  // Отрисовываем только админ-интерфейс
+  main.innerHTML = `
+    <div class="admin-home-container">
+      <h1 class="admin-title">Панель управления Ticketmuse</h1>
+      <p class="admin-subtitle">Добро пожаловать в систему администрирования</p>
+
+      <div class="admin-dashboard-grid">
+        <a href="#/admin/concerts" class="admin-card">
+          <span class="icon">🎸</span>
+          <span>Все концерты</span>
+        </a>
+        <a href="#/admin/halls" class="admin-card">
+          <span class="icon">🏛</span>
+          <span>Все концертные залы</span>
+        </a>
+        <a href="#/admin/groups" class="admin-card">
+          <span class="icon">🎤</span>
+          <span>Музыкальные группы</span>
+        </a>
+        <a href="#/admin/sales" class="admin-card">
+          <span class="icon">💰</span>
+          <span>Последние продажи</span>
+        </a>
+        <a href="#/admin/add" class="admin-card add-new">
+          <span class="icon">➕</span>
+          <span>Добавить объект</span>
+        </a>
+      </div>
+    </div>
+  `;
+}
 
   async function renderAdminConcerts(paintGen) {
     const user = await loadUser();
@@ -594,86 +640,259 @@
     renderLayout(wrap, paintGen);
   }
 
-  async function renderAdminSales(paintGen) {
-    const user = await loadUser();
-    if (paintGen !== routeGeneration) return;
 
-    if (!user || !user.is_admin) {
-      renderLayout('<div class="error-box">Нужны права администратора.</div>', paintGen);
-      return;
-    }
-    let sales = [];
-    try {
-      sales = await Admin.recentSales(80);
-    } catch (e) {
-      renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
-      return;
-    }
-    if (paintGen !== routeGeneration) return;
+let salesLimit = 10;
 
-    const rows = sales
-      .map(
-        (s) => `
-    <tr>
-      <td>${formatDate(s.sale_date)}</td>
-      <td>${escapeHtml(s.user_email)}</td>
-      <td>${escapeHtml(s.concert_name || "—")}</td>
-      <td>${s.count}</td>
-      <td>${s.total_price} ₽</td>
-    </tr>`
-      )
-      .join("");
-    renderLayout(
-      `
-    <h1>Недавние покупки</h1>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Дата</th><th>Пользователь</th><th>Концерт</th><th>Билетов</th><th>Сумма</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="5" class="muted">Нет данных</td></tr>'}</tbody>
-      </table>
-    </div>
-    <p><a href="#/admin">← Админ</a></p>
-  `,
-      paintGen
-    );
+async function renderAdminSales(paintGen) {
+  const user = await loadUser();
+  if (paintGen !== routeGeneration) return;
+
+  if (!user || !user.is_admin) {
+    renderLayout('<div class="error-box">Нужны права администратора.</div>', paintGen);
+    return;
   }
+
+  // Загружаем продажи с учетом текущего лимита
+  let sales = [];
+  try {
+    // В api.js метод должен принимать лимит: Admin.recentSales(limit)
+    sales = await Admin.recentSales(salesLimit);
+  } catch (e) {
+    renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
+    return;
+  }
+
+  if (paintGen !== routeGeneration) return;
+
+  const rows = sales.map((s) => `
+    <tr>
+      <td>${formatDate(s.created_at || s.sale_date)}</td>
+      <td>${escapeHtml(s.user_email || (s.user && s.user.email) || "—")}</td>
+      <td>${escapeHtml(s.concert_name || (s.concert && s.concert.title) || "—")}</td>
+      <td>${s.count || 1}</td>
+      <td>${s.total_price || 0} ₽</td>
+    </tr>
+  `).join("");
+
+  const html = `
+    <div class="admin-container">
+      <h1>Недавние покупки билетов</h1>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>Дата</th><th>Пользователь</th><th>Концерт</th><th>Билетов</th><th>Сумма</th></tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="5" class="muted">Нет данных</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="text-align: center; margin-top: 20px;">
+        <button id="load-more-sales" class="btn-secondary" style="${sales.length < salesLimit ? 'display:none' : ''}">
+          Показать еще
+        </button>
+      </div>
+
+      <p style="margin-top: 20px;"><a href="#/">← В админ-панель</a></p>
+    </div>
+  `;
+
+  renderLayout(html, paintGen);
+
+  // Вешаем обработчик на кнопку "Показать еще"
+  const loadMoreBtn = document.getElementById("load-more-sales");
+  if (loadMoreBtn) {
+    loadMoreBtn.onclick = async () => {
+      salesLimit += 10; // Увеличиваем лимит
+      await renderAdminSales(paintGen); // Перерисовываем страницу
+    };
+  }
+}
+async function renderAdminHalls(paintGen) {
+  const user = await loadUser();
+  if (paintGen !== routeGeneration) return;
+
+  if (!user || !user.is_admin) {
+    renderLayout('<div class="error-box">Доступ запрещен.</div>', paintGen);
+    return;
+  }
+
+  let halls = [];
+  try {
+    halls = await Halls.list();
+  } catch (e) {
+    renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
+    return;
+  }
+
+  const rows = halls.map(h => `
+    <tr>
+      <td>${h.id}</td>
+      <td><strong>${escapeHtml(h.name)}</strong></td>
+      <td>${escapeHtml(h.address || "—")}</td>
+      <td>${h.capacity || "—"} чел.</td>
+      <td>
+        <button class="btn-danger" onclick="deleteHall(${h.id}, ${paintGen})">Удалить</button>
+      </td>
+    </tr>
+  `).join("");
+
+  renderLayout(`
+    <div class="admin-container">
+      <h1>Управление залами</h1>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>ID</th><th>Название</th><th>Адрес</th><th>Вместимость</th><th>Действия</th></tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="5">Залов пока нет</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <p><a href="#/" class="btn-secondary">← Назад</a></p>
+    </div>
+  `, paintGen);
+}
+
+
+// Вспомогательная функция удаления зала
+window.deleteHall = async (id, gen) => {
+  if (!confirm("Удалить этот зал?")) return;
+  try {
+    await Halls.delete(id);
+    await renderAdminHalls(gen); // Перерисовываем список
+  } catch (e) {
+    alert("Ошибка при удалении: " + e.message);
+  }
+};
+
+async function renderAdminGroups(paintGen) {
+  const user = await loadUser();
+  if (paintGen !== routeGeneration) return;
+
+  let groups = [];
+  try {
+    groups = await Groups.list();
+  } catch (e) {
+    renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
+    return;
+  }
+
+  const rows = groups.map(g => `
+    <tr>
+      <td>${g.id}</td>
+      <td><strong>${escapeHtml(g.name)}</strong></td>
+      <td>${escapeHtml(g.description || "Без описания")}</td>
+      <td>
+        <button class="btn-danger" onclick="deleteGroup(${g.id}, ${paintGen})">Удалить</button>
+      </td>
+    </tr>
+  `).join("");
+
+  renderLayout(`
+    <div class="admin-container">
+      <h1>Музыкальные группы</h1>
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>ID</th><th>Название</th><th>Описание</th><th>Действия</th></tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="4">Групп пока нет</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <p><a href="#/" class="btn-secondary">← Назад</a></p>
+    </div>
+  `, paintGen);
+}
+
+// Вспомогательная функция удаления группы
+window.deleteGroup = async (id, gen) => {
+  if (!confirm("Удалить группу? Это может затронуть связанные концерты.")) return;
+  try {
+    await Groups.delete(id);
+    await renderAdminGroups(gen);
+  } catch (e) {
+    alert("Ошибка: " + e.message);
+  }
+};
 
   async function route() {
-    const paintGen = ++routeGeneration;
-    const r = parseRoute();
-    const [a, b] = [r.name, r.args[0]];
-    try {
-      if (a === "home" || a === "") {
-        await renderHome(paintGen);
-      } else if (a === "login") {
-        renderLogin(paintGen);
-      } else if (a === "register") {
-        renderRegister(paintGen);
-      } else if (a === "concert" && b) {
-        await renderConcertDetail(b, paintGen);
-      } else if (a === "watchlist") {
-        await renderWatchlist(paintGen);
-      } else if (a === "profile") {
-        await renderProfile(paintGen);
-      } else if (a === "buy" && b) {
-        await renderBuy(b, paintGen);
-      } else if (a === "admin") {
-        if (!b) await renderAdminHome(paintGen);
-        else if (b === "concerts") await renderAdminConcerts(paintGen);
-        else if (b === "sales") await renderAdminSales(paintGen);
-        else await renderAdminHome(paintGen);
+  const paintGen = ++routeGeneration;
+  const r = parseRoute();
+  const [a, b] = [r.name, r.args[0]];
+
+  // 1. Сначала получаем данные пользователя, чтобы знать его роль
+  const user = await loadUser();
+
+  try {
+    // 2. Логика для главной страницы (#/ или пустой хэш)
+    if (a === "home" || a === "") {
+      if (user && user.is_admin) {
+        // Если зашел админ — показываем панель управления с 5 кнопками
+        await renderAdminHome(paintGen);
       } else {
+        // Если гость или обычный юзер — показываем витрину концертов
         await renderHome(paintGen);
-      }
-    } catch (e) {
-      console.error(e);
-      renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
-    } finally {
-      if (paintGen === routeGeneration) {
-        await updateHeaderAuth();
       }
     }
+    else if (a === "login") {
+      renderLogin(paintGen);
+    }
+    else if (a === "register") {
+      renderRegister(paintGen);
+    }
+    else if (a === "concert" && b) {
+      await renderConcertDetail(b, paintGen);
+    }
+    else if (a === "watchlist") {
+      await renderWatchlist(paintGen);
+    }
+    else if (a === "profile") {
+      await renderProfile(paintGen);
+    }
+    else if (a === "buy" && b) {
+      await renderBuy(b, paintGen);
+    }
+    // 3. Обработка админских подстраниц (ссылки из кнопок панели)
+    else if (a === "admin") {
+      // Защита: если не админ пытается зайти по прямой ссылке — кидаем на главную
+      if (!user || !user.is_admin) {
+        navigate("#/");
+        return;
+      }
+
+      if (b === "concerts") {
+        await renderAdminConcerts(paintGen);
+      } else if (b === "halls") {
+        await renderAdminHalls(paintGen); // Добавьте функцию для залов
+      } else if (b === "groups") {
+        await renderAdminGroups(paintGen); // Добавьте функцию для групп
+      } else if (b === "sales") {
+        salesLimit = 10; // Сбрасываем лимит при входе на страницу
+        await renderAdminSales(paintGen);
+      } else if (b === "add") {
+        await renderAdminAdd(paintGen); // Страница добавления/редактирования
+      } else {
+        await renderAdminHome(paintGen);
+      }
+    }
+    else {
+      // Если маршрут не найден — на главную (которая сама выберет роль)
+      navigate("#/");
+    }
+  } catch (e) {
+    console.error(e);
+    renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
+  } finally {
+    if (paintGen === routeGeneration) {
+      await updateHeaderAuth();
+    }
   }
+}
 
   async function updateHeaderAuth() {
     const user = await loadUser();
@@ -695,7 +914,7 @@
       elUser.onclick = null;
     }
     if (elAdmin) {
-      elAdmin.style.display = user && user.is_admin ? "inline" : "none";
+      elAdmin.style.display = "none";
     }
   }
 

@@ -115,6 +115,15 @@ const Concerts = {
   purchaseOptions(id) {
     return apiFetch(`/concerts/${id}/purchase-options`);
   },
+  groups(id) {
+    return apiFetch(`/concerts/${id}/groups`);
+  },
+  addGroup(concertId, groupId) {
+    return apiFetch(`/concerts/${concertId}/groups/${groupId}`, { method: "POST" });
+  },
+  removeGroup(concertId, groupId) {
+    return apiFetch(`/concerts/${concertId}/groups/${groupId}`, { method: "DELETE" });
+  },
   create(payload) {
     return apiFetch("/concerts/", { method: "POST", body: JSON.stringify(payload) });
   },
@@ -130,12 +139,43 @@ const Halls = {
   list() {
     return apiFetch("/halls/?limit=200&offset=0");
   },
+  create(payload) {
+    return apiFetch("/halls/", { method: "POST", body: JSON.stringify(payload) });
+  },
+  update(id, payload) {
+    return apiFetch(`/halls/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+  },
+  delete(id) {
+    return apiFetch(`/halls/${id}`, { method: "DELETE" });
+  },
+};
+
+const Groups = {
+  list() {
+    return apiFetch("/groups/?limit=200&offset=0");
+  },
+  create(payload) {
+    return apiFetch("/groups/", { method: "POST", body: JSON.stringify(payload) });
+  },
+  update(id, payload) {
+    return apiFetch(`/groups/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+  },
+  delete(id) {
+    return apiFetch(`/groups/${id}`, { method: "DELETE" });
+  },
 };
 
 const Sales = {
   buy(payload) {
     return apiFetch("/sales/buy", { method: "POST", body: JSON.stringify(payload) });
   },
+  // Новый метод для админа
+  recent_sales() {
+    return apiFetch("/admin/sales/recent");
+  },
+  delete(id) {
+    return apiFetch(`/sales/${id}`, { method: "DELETE" });
+  }
 };
 
 const Watchlist = {
@@ -159,4 +199,4 @@ const Admin = {
   },
 };
 
-window.TicketshopApi = { Auth, Concerts, Halls, Sales, Watchlist, Admin, getToken, setToken };
+window.TicketshopApi = { Auth, Concerts, Halls, Groups, Sales, Watchlist, Admin, getToken, setToken };
