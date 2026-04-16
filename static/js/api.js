@@ -115,6 +115,9 @@ const Concerts = {
   purchaseOptions(id) {
     return apiFetch(`/concerts/${id}/purchase-options`);
   },
+  hallLayout(id) {
+    return apiFetch(`/concerts/${id}/hall-layout`);
+  },
   groups(id) {
     return apiFetch(`/concerts/${id}/groups`);
   },

@@ -28,3 +28,28 @@ class PurchaseOptionItem(BaseModel):
     id_hall_zone: int
     price: int
     remains: int
+
+
+class HallLayoutSeat(BaseModel):
+    row: int
+    seat: int
+
+
+class HallLayoutZone(BaseModel):
+    id_hall_zone: int
+    id_ticket_type: int
+    name: str
+    role: str  # "vip" | "dance" | "lounge" | "other"
+    price: int
+    total: int
+    remains: int
+    color: str
+    seats: list[HallLayoutSeat]
+
+
+class HallLayoutResponse(BaseModel):
+    scheme: str
+    rows_count: int
+    seats_per_row: int
+    zones: list[HallLayoutZone]
+    occupied: list[list[int]]  # [[row, seat], ...]

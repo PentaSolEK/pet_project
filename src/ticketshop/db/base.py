@@ -7,3 +7,4 @@ from src.ticketshop.domain.tickettypes.models import TicketType
 from src.ticketshop.domain.groups.models import MusicGroups, Genre
 from src.ticketshop.domain.sales.models import Sale
 from src.ticketshop.domain.watchlist.models import Watchlist
+from src.ticketshop.domain.seat_bookings.models import SeatBooking

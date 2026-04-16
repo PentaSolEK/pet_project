@@ -9,10 +9,13 @@ from src.ticketshop.domain.concerts.schemas import (
 )
 from src.ticketshop.domain.concerts import repo
 from src.ticketshop.domain.hall_zone.repo import list_hall_zones_by_hall
+from src.ticketshop.domain.halls.repo import get_hall
 from src.ticketshop.domain.tickettypes.repo import get_TicketType
 from src.ticketshop.domain.tickets.repo import get_ticket
 from src.ticketshop.domain.groups.schemas import MusicgroupsPublic
 from src.ticketshop.domain.groups import repo as groups_repo
+from src.ticketshop.domain.seat_bookings import repo as seat_repo
+from src.ticketshop.domain.concerts.schemas import HallLayoutResponse, HallLayoutZone, HallLayoutSeat
 
 router = APIRouter(prefix="/concerts", tags=["concerts"])
 
@@ -51,6 +54,112 @@ async def purchase_options(concert_id: int, session: SessionDep):
             )
         )
     return out
+
+def _zone_role(type_name: str) -> str:
+    t = (type_name or "").strip().lower()
+    if "вип" in t or "vip" in t:
+        return "vip"
+    if "танцпол" in t or "dance" in t or "pit" in t:
+        return "dance"
+    if "лаунж" in t or "lounge" in t:
+        return "lounge"
+    return "other"
+
+
+_ROLE_COLORS = {
+    "vip": "#f59e0b",
+    "dance": "#7c6cf0",
+    "lounge": "#10b981",
+    "other": "#64748b",
+}
+
+
+def _build_seats_for_zone(role: str, amount: int, seats_per_row: int, row_offset: int) -> tuple[list[HallLayoutSeat], int]:
+    seats: list[HallLayoutSeat] = []
+    if role == "dance":
+        # Dance floor is represented as a single clickable area on the frontend;
+        # we don't emit individual virtual spots. Capacity is tracked via ticket.remains.
+        return seats, 0
+    if amount <= 0 or seats_per_row <= 0:
+        return seats, 0
+    rows_used = (amount + seats_per_row - 1) // seats_per_row
+    remaining = amount
+    for r in range(rows_used):
+        row_num = row_offset + r
+        in_this_row = min(seats_per_row, remaining)
+        for s in range(1, in_this_row + 1):
+            seats.append(HallLayoutSeat(row=row_num, seat=s))
+        remaining -= in_this_row
+    return seats, rows_used
+
+
+@router.get("/{concert_id}/hall-layout", response_model=HallLayoutResponse)
+async def hall_layout(concert_id: int, session: SessionDep):
+    concert = await repo.get_Concerts(session, concert_id)
+    if not concert or not concert.id_hall:
+        raise HTTPException(404, "Concert not found or hall not set")
+    hall = await get_hall(session, concert.id_hall)
+    if not hall:
+        raise HTTPException(404, "Hall not found")
+
+    rows_count = hall.rows_count or 10
+    seats_per_row = hall.seats_per_row or 10
+    scheme = hall.scheme or "classic"
+
+    zones_raw = await list_hall_zones_by_hall(session, concert.id_hall)
+
+    classified: list[dict] = []
+    for z in zones_raw:
+        tt = await get_TicketType(session, z.id_type)
+        if not tt:
+            continue
+        trow = await get_ticket(session, concert_id, z.id_hall_zone)
+        if not trow:
+            continue
+        classified.append({
+            "zone": z,
+            "type": tt,
+            "ticket": trow,
+            "role": _zone_role(tt.type),
+        })
+
+    order = {"dance": 0, "vip": 1, "lounge": 2, "other": 3}
+    classified.sort(key=lambda c: order.get(c["role"], 9))
+
+    response_zones: list[HallLayoutZone] = []
+    row_cursor = 1  # row 0 is reserved for dance floor standing spots
+    for c in classified:
+        zone = c["zone"]
+        role = c["role"]
+        total = zone.amount or 0
+        seats, rows_used = _build_seats_for_zone(role, total, seats_per_row, row_cursor)
+        if role != "dance":
+            row_cursor += rows_used
+        response_zones.append(
+            HallLayoutZone(
+                id_hall_zone=zone.id_hall_zone,
+                id_ticket_type=zone.id_type,
+                name=c["type"].type,
+                role=role,
+                price=c["ticket"].price,
+                total=total,
+                remains=c["ticket"].remains,
+                color=_ROLE_COLORS.get(role, "#64748b"),
+                seats=seats,
+            )
+        )
+
+    occupied_raw = await seat_repo.list_occupied_for_concert(session, concert_id)
+    occupied = [[sb.row_num, sb.seat_num] for sb in occupied_raw]
+
+    return HallLayoutResponse(
+        scheme=scheme,
+        rows_count=max(rows_count, row_cursor - 1),
+        seats_per_row=seats_per_row,
+        zones=response_zones,
+        occupied=occupied,
+    )
+
 
 @router.get("/{concert_id}", response_model=ConcertPublic)
 async def get_(concert_id: int, session: SessionDep):

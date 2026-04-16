@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import smtplib
+import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -10,26 +12,27 @@ from src.ticketshop.core.config import settings
 router = RabbitRouter()
 logger = logging.getLogger("faststream")
 
-WELCOME_SUBJECT = "Добро пожаловать в TicketShop! 🎵"
+WELCOME_SUBJECT = "Добро пожаловать в Ticketmuse! 🎵"
 
 WELCOME_HTML = """\
 <html>
-<body style="font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 30px;">
-  <div style="max-width: 600px; margin: auto; background: white; border-radius: 10px; padding: 40px;">
-    <h1 style="color: #333;">🎶 Добро пожаловать в TicketShop!</h1>
-    <p style="color: #555; font-size: 16px;">
+<body style="font-family: Arial, sans-serif; background-color: #0f1117; padding: 30px;">
+  <div style="max-width: 600px; margin: auto; background: #1a1d27;
+              border: 1px solid #2a2f3d; border-radius: 12px; padding: 40px; color: #e8eaef;">
+    <h1 style="color: #7c6cf0; margin-top: 0;">🎶 Добро пожаловать в Ticketmuse!</h1>
+    <p style="color: #9aa3b2; font-size: 16px;">
       Привет! Мы рады, что ты с нами. Теперь тебе доступны билеты на лучшие концерты.
     </p>
-    <p style="color: #555; font-size: 16px;">
-      Твой аккаунт: <strong>{email}</strong>
+    <p style="font-size: 16px;">
+      Твой аккаунт: <strong style="color: #7c6cf0;">{email}</strong>
     </p>
     <a href="http://localhost:8000"
-       style="display:inline-block; margin-top:20px; padding:12px 24px;
-              background-color:#6c63ff; color:white; border-radius:6px;
-              text-decoration:none; font-size:16px;">
-      Перейти в TicketShop
+       style="display:inline-block; margin-top:20px; padding:12px 28px;
+              background-color:#7c6cf0; color:white; border-radius:8px;
+              text-decoration:none; font-size:16px; font-weight:600;">
+      Открыть Ticketmuse
     </a>
-    <p style="margin-top: 30px; color: #aaa; font-size: 12px;">
+    <p style="margin-top: 36px; color: #555e72; font-size: 12px;">
       Если вы не регистрировались — просто проигнорируйте это письмо.
     </p>
   </div>
@@ -41,12 +44,11 @@ WELCOME_HTML = """\
 def _build_message(to_email: str) -> MIMEMultipart:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = WELCOME_SUBJECT
-    msg["From"] = settings.email_from or settings.smtp_user or "noreply@ticketshop.com"
+    msg["From"] = f"{settings.email_from_name} <{settings.email_from or settings.smtp_user}>"
     msg["To"] = to_email
-
     plain = (
-        f"Добро пожаловать в TicketShop!\n\n"
-        f"Ваш аккаунт: {to_email}\n"
+        f"Добро пожаловать в Ticketmuse!\n\n"
+        f"Твой аккаунт: {to_email}\n"
         f"Перейти на сайт: http://localhost:8000\n"
     )
     msg.attach(MIMEText(plain, "plain", "utf-8"))
@@ -54,40 +56,57 @@ def _build_message(to_email: str) -> MIMEMultipart:
     return msg
 
 
+def _smtp_send_sync(to_email: str) -> None:
+    """
+    Синхронная отправка — запускается в thread-пуле через run_in_executor.
+    Пробует STARTTLS/587, при неудаче — SSL/465.
+    """
+    msg = _build_message(to_email)
+    raw = msg.as_string()
+    from_addr = settings.smtp_user
+    host = settings.smtp_host
+    user = settings.smtp_user
+    password = settings.smtp_password
+
+    # Попытка 1: STARTTLS port 587
+    try:
+        logger.info("SMTP: trying STARTTLS %s:587", host)
+        with smtplib.SMTP(host, 587, timeout=30) as s:
+            s.ehlo()
+            s.starttls()
+            s.ehlo()
+            s.login(user, password)
+            s.sendmail(from_addr, [to_email], raw)
+        return
+    except smtplib.SMTPAuthenticationError:
+        raise
+    except Exception as exc:
+        logger.warning("SMTP STARTTLS/587 failed: %s — trying SSL/465", exc)
+
+    # Попытка 2: SSL port 465
+    ctx = ssl.create_default_context()
+    with smtplib.SMTP_SSL(host, 465, timeout=30, context=ctx) as s:
+        s.ehlo()
+        s.login(user, password)
+        s.sendmail(from_addr, [to_email], raw)
+
+
 @router.subscriber("user_registered")
 async def send_welcome_email(email: str):
     """
-    Обработчик события регистрации пользователя:
-      - Отправляет HTML-приветствие на почту через SMTP (STARTTLS);
-      - Если SMTP не настроен — только логирует.
+    Отправляет приветственное письмо через SMTP.
+    Синхронный smtplib запускается в thread-пуле — event loop не блокируется.
     """
     if not settings.smtp_user or not settings.smtp_password:
-        logger.warning(
-            "SMTP credentials not configured (SMTP_USER / SMTP_PASSWORD). "
-            "Skipping real email — would have sent welcome email to %s",
-            email,
-        )
+        logger.warning("SMTP credentials not set — skipping welcome email to %s", email)
         return
 
+    logger.info("Sending welcome email to %s via SMTP (%s)", email, settings.smtp_host)
     try:
-        msg = _build_message(email)
-        logger.info("SMTP debug: host=%s port=%s user=%s password_len=%s",
-                    settings.smtp_host, settings.smtp_port,
-                    settings.smtp_user,
-                    len(settings.smtp_password) if settings.smtp_password else 0,
-                    )
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.sendmail(msg["From"], [email], msg.as_string())
-
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _smtp_send_sync, email)
         logger.info("Welcome email successfully sent to %s", email)
-
     except smtplib.SMTPAuthenticationError:
-        logger.error("SMTP authentication failed. Check SMTP_USER / SMTP_PASSWORD.")
-    except smtplib.SMTPException as exc:
+        logger.error("SMTP auth failed — check SMTP_USER / SMTP_PASSWORD in .env")
+    except Exception as exc:
         logger.error("Failed to send welcome email to %s: %s", email, exc)
-    except OSError as exc:
-        logger.error("SMTP connection error (%s:%s): %s", settings.smtp_host, settings.smtp_port, exc)

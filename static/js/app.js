@@ -90,17 +90,30 @@
     );
 
     let concerts = [];
+    let halls = [];
+    let allGroups = [];
     let err = "";
     try {
-      const pageSize = 50;
-      let offset = 0;
-      while (paintGen === routeGeneration) {
-        const page = await Concerts.list(pageSize, offset);
-        if (!Array.isArray(page) || page.length === 0) break;
-        concerts.push(...page);
-        if (page.length < pageSize) break;
-        offset += pageSize;
-      }
+      const [concertsRes, hallsRes, groupsRes] = await Promise.all([
+        (async () => {
+          const all = [];
+          const pageSize = 50;
+          let offset = 0;
+          while (paintGen === routeGeneration) {
+            const page = await Concerts.list(pageSize, offset);
+            if (!Array.isArray(page) || page.length === 0) break;
+            all.push(...page);
+            if (page.length < pageSize) break;
+            offset += pageSize;
+          }
+          return all;
+        })(),
+        Halls.list(),
+        Groups.list(),
+      ]);
+      concerts = concertsRes;
+      halls = hallsRes;
+      allGroups = groupsRes;
     } catch (e) {
       err = e.message || String(e);
     }
@@ -121,34 +134,137 @@
 
     if (paintGen !== routeGeneration) return;
 
-    const wrap = el(`<div class="hero"></div>`);
-    // На некоторых случаях (кэш/другая разметка) querySelector может вернуть null.
-    const hero = wrap.querySelector(".hero") || wrap;
-    hero.innerHTML = `<h1>Мероприятия</h1>
-    <p class="muted">Выберите концерт и купите билет онлайн.</p>`;
+    // Карта залов для фильтрации
+    const hallMap = {};
+    halls.forEach((h) => { hallMap[h.id_hall] = h.name; });
+
+    // Уникальные группы из реально привязанных
+    const usedGroupIds = new Set();
+    Object.values(groupsMap).forEach((gs) => gs.forEach((g) => usedGroupIds.add(g.id_group)));
+    const filterGroups = allGroups.filter((g) => usedGroupIds.has(g.id_group));
+
+    // --- Построение интерфейса ---
+    const wrap = el("<div></div>");
+    wrap.innerHTML = `
+      <div class="hero">
+        <h1>Мероприятия</h1>
+        <p class="muted">Выберите концерт и купите билет онлайн.</p>
+      </div>
+      <div class="filter-panel">
+        <div class="filter-row">
+          <input type="text" id="f-search" class="filter-input" placeholder="Поиск по названию или артисту…">
+        </div>
+        <div class="filter-row filter-selects">
+          <select id="f-group"><option value="">Все артисты</option></select>
+          <select id="f-hall"><option value="">Все залы</option></select>
+          <input type="date" id="f-date-from" class="filter-input" title="Дата от">
+          <input type="date" id="f-date-to" class="filter-input" title="Дата до">
+          <button type="button" id="f-reset" class="btn btn-ghost btn-sm">Сбросить</button>
+        </div>
+      </div>
+    `;
     if (err) wrap.appendChild(el(`<div class="error-box">${escapeHtml(err)}</div>`));
-    const grid = el('<div class="grid cols-2"></div>');
-    if (!concerts.length && !err) {
-      grid.appendChild(el('<p class="empty">Пока нет опубликованных мероприятий.</p>'));
-    }
-    concerts.forEach((c) => {
-      const paused = c.sales_paused ? '<span class="badge warn">Продажи приостановлены</span>' : "";
-      const groups = groupsMap[c.id_concert] || [];
-      const groupsHtml = groups.length
-        ? `<div class="concert-groups"><span class="groups-label">Группы:</span> ${groups
-            .map((g) => `<span class="group-tag">${escapeHtml(g.name)}</span>`)
-            .join("")}</div>`
-        : "";
-      const card = el(`<article class="card clickable">
-      <div class="card-title">${escapeHtml(c.name)}</div>
-      <div class="muted">${formatDate(c.date)}</div>
-      ${groupsHtml}
-      <div style="margin-top:0.5rem">${paused}</div>
-    </article>`);
-      card.addEventListener("click", () => navigate("#/concert/" + c.id_concert));
-      grid.appendChild(card);
-    });
+    const grid = el('<div class="grid cols-2" id="concerts-grid"></div>');
     wrap.appendChild(grid);
+
+    // Заполняем <select>
+    const selGroup = wrap.querySelector("#f-group");
+    filterGroups
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((g) => {
+        const o = document.createElement("option");
+        o.value = String(g.id_group);
+        o.textContent = g.name;
+        selGroup.appendChild(o);
+      });
+
+    const selHall = wrap.querySelector("#f-hall");
+    halls
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((h) => {
+        const o = document.createElement("option");
+        o.value = String(h.id_hall);
+        o.textContent = h.name;
+        selHall.appendChild(o);
+      });
+
+    // --- Функция отрисовки карточек ---
+    function renderCards() {
+      const search = wrap.querySelector("#f-search").value.trim().toLowerCase();
+      const groupId = wrap.querySelector("#f-group").value;
+      const hallId = wrap.querySelector("#f-hall").value;
+      const dateFrom = wrap.querySelector("#f-date-from").value;
+      const dateTo = wrap.querySelector("#f-date-to").value;
+
+      grid.innerHTML = "";
+
+      const filtered = concerts.filter((c) => {
+        const groups = groupsMap[c.id_concert] || [];
+
+        // Текстовый поиск — по названию концерта и именам групп
+        if (search) {
+          const inName = c.name.toLowerCase().includes(search);
+          const inGroups = groups.some((g) => g.name.toLowerCase().includes(search));
+          if (!inName && !inGroups) return false;
+        }
+        // Фильтр по артисту
+        if (groupId && !groups.some((g) => String(g.id_group) === groupId)) return false;
+        // Фильтр по залу
+        if (hallId && String(c.id_hall) !== hallId) return false;
+        // Фильтр по дате
+        const cd = new Date(c.date);
+        if (dateFrom && cd < new Date(dateFrom)) return false;
+        if (dateTo) {
+          const to = new Date(dateTo);
+          to.setHours(23, 59, 59, 999);
+          if (cd > to) return false;
+        }
+        return true;
+      });
+
+      if (!filtered.length) {
+        grid.appendChild(el('<p class="empty">Ничего не найдено.</p>'));
+        return;
+      }
+
+      filtered.forEach((c) => {
+        const paused = c.sales_paused ? '<span class="badge warn">Продажи приостановлены</span>' : "";
+        const groups = groupsMap[c.id_concert] || [];
+        const groupsHtml = groups.length
+          ? `<div class="concert-groups"><span class="groups-label">Группы:</span> ${groups
+              .map((g) => `<span class="group-tag">${escapeHtml(g.name)}</span>`)
+              .join("")}</div>`
+          : "";
+        const hallName = hallMap[c.id_hall];
+        const hallHtml = hallName ? `<div class="muted" style="font-size:0.82rem">${escapeHtml(hallName)}</div>` : "";
+        const card = el(`<article class="card clickable">
+          <div class="card-title">${escapeHtml(c.name)}</div>
+          <div class="muted">${formatDate(c.date)}</div>
+          ${hallHtml}
+          ${groupsHtml}
+          <div style="margin-top:0.5rem">${paused}</div>
+        </article>`);
+        card.addEventListener("click", () => navigate("#/concert/" + c.id_concert));
+        grid.appendChild(card);
+      });
+    }
+
+    // Вешаем обработчики
+    wrap.querySelector("#f-search").addEventListener("input", renderCards);
+    wrap.querySelector("#f-group").addEventListener("change", renderCards);
+    wrap.querySelector("#f-hall").addEventListener("change", renderCards);
+    wrap.querySelector("#f-date-from").addEventListener("change", renderCards);
+    wrap.querySelector("#f-date-to").addEventListener("change", renderCards);
+    wrap.querySelector("#f-reset").addEventListener("click", () => {
+      wrap.querySelector("#f-search").value = "";
+      wrap.querySelector("#f-group").value = "";
+      wrap.querySelector("#f-hall").value = "";
+      wrap.querySelector("#f-date-from").value = "";
+      wrap.querySelector("#f-date-to").value = "";
+      renderCards();
+    });
+
+    renderCards();
     renderLayout(wrap, paintGen);
   }
 
@@ -327,7 +443,57 @@
     renderLayout(wrap, paintGen);
   }
 
-  async function renderBuy(concertId, paintGen) {
+  // ── Модальные окна ──────────────────────────────────────────────────────────
+
+  function showConfirmModal(title, text, onYes) {
+    const existing = document.getElementById("_confirm-modal");
+    if (existing) existing.remove();
+
+    const modal = el(`
+      <div id="_confirm-modal" class="modal-overlay">
+        <div class="modal-box">
+          <h2 class="modal-title">${escapeHtml(title)}</h2>
+          <p class="modal-text">${escapeHtml(text)}</p>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="_confirm-no">Отмена</button>
+            <button type="button" class="btn btn-primary" id="_confirm-yes">Да</button>
+          </div>
+        </div>
+      </div>
+    `);
+    document.body.appendChild(modal);
+    modal.querySelector("#_confirm-yes").addEventListener("click", () => {
+      modal.remove();
+      onYes();
+    });
+    modal.querySelector("#_confirm-no").addEventListener("click", () => modal.remove());
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  }
+
+  function showSuccessModal(title, text, onClose) {
+    const existing = document.getElementById("_success-modal");
+    if (existing) existing.remove();
+
+    const modal = el(`
+      <div id="_success-modal" class="modal-overlay">
+        <div class="modal-box">
+          <div class="modal-icon">🎉</div>
+          <h2 class="modal-title">${escapeHtml(title)}</h2>
+          <p class="modal-text">${text}</p>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-primary" id="_success-ok">Отлично!</button>
+          </div>
+        </div>
+      </div>
+    `);
+    document.body.appendChild(modal);
+    const close = () => { modal.remove(); if (onClose) onClose(); };
+    modal.querySelector("#_success-ok").addEventListener("click", close);
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+  }
+
+  // ── Страница бронирования (шаг 1 — выбор билета) — устарело ────────────────
+  async function _unused_renderBuy(concertId, paintGen) {
     const user = await loadUser();
     if (paintGen !== routeGeneration) return;
 
@@ -348,28 +514,57 @@
 
     if (c.sales_paused) {
       renderLayout(
-        `<div class="error-box">Продажи на это мероприятие приостановлены.</div><p><a href="#/concert/${concertId}">← Назад</a></p>`,
+        `<div class="error-box">Продажи на это мероприятие приостановлены.</div>
+         <p><a href="#/concert/${concertId}">← Назад</a></p>`,
         paintGen
       );
       return;
     }
+
     const wrap = el("<div></div>");
+    const prefillName      = escapeHtml(user.name    || "");
+    const prefillSurname   = escapeHtml(user.surname || "");
+    const prefillBirthDate = "";
     wrap.innerHTML = `
-    <h1>Покупка билета</h1>
-    <p class="muted">${escapeHtml(c.name)} · ${formatDate(c.date)}</p>
-    <form id="buy-form">
-      <div class="form-row">
-        <label>Тип билета / зона</label>
-        <select name="ticket_type" required></select>
-      </div>
-      <div class="form-row">
-        <label>Количество</label>
-        <input name="count" type="number" min="1" value="1" required>
-      </div>
-      <button type="submit" class="btn btn-primary">Оплатить (оформить заказ)</button>
-    </form>
-    <p style="margin-top:1rem"><a href="#/concert/${concertId}">← К мероприятию</a></p>
-  `;
+      <h1>Оформление билета</h1>
+      <p class="muted">${escapeHtml(c.name)} · ${formatDate(c.date)}</p>
+      <form id="buy-form" style="max-width:480px;margin-top:1.5rem">
+
+        <div class="card" style="margin-bottom:1.25rem">
+          <h2 style="margin-top:0;font-size:1.05rem">Данные покупателя</h2>
+          <div class="form-row">
+            <label>Имя <span style="color:var(--danger)">*</span></label>
+            <input name="name" value="${prefillName}" required placeholder="Введите имя">
+          </div>
+          <div class="form-row">
+            <label>Фамилия <span style="color:var(--danger)">*</span></label>
+            <input name="surname" value="${prefillSurname}" required placeholder="Введите фамилию">
+          </div>
+          <div class="form-row">
+            <label>Дата рождения <span style="color:var(--danger)">*</span></label>
+            <input name="birth_date" type="date" value="${prefillBirthDate}" required>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 style="margin-top:0;font-size:1.05rem">Билет</h2>
+          <div class="form-row">
+            <label>Тип билета / зона</label>
+            <select name="ticket_type" required></select>
+          </div>
+          <div class="form-row">
+            <label>Количество</label>
+            <input name="count" type="number" min="1" value="1" required>
+          </div>
+        </div>
+
+        <div class="actions" style="margin-top:1.25rem">
+          <button type="submit" class="btn btn-primary">Перейти к оплате →</button>
+        </div>
+      </form>
+      <p style="margin-top:1rem"><a href="#/concert/${concertId}">← К мероприятию</a></p>
+    `;
+
     const sel = wrap.querySelector('select[name="ticket_type"]');
     if (!options.length) {
       sel.innerHTML = '<option value="">Нет доступных билетов</option>';
@@ -379,28 +574,500 @@
         const opt = document.createElement("option");
         opt.value = String(o.id_ticket_type);
         opt.textContent = `${o.ticket_type_name} — ${o.price} ₽ (осталось: ${o.remains})`;
-        opt.dataset.remains = String(o.remains);
+        opt.dataset.price = String(o.price);
         sel.appendChild(opt);
       });
     }
+
     wrap.querySelector("#buy-form").addEventListener("submit", async (ev) => {
       ev.preventDefault();
       const fd = new FormData(ev.target);
-      const idType = parseInt(fd.get("ticket_type"), 10);
-      const count = parseInt(fd.get("count"), 10);
+      const name      = fd.get("name")?.trim() || "";
+      const surname   = fd.get("surname")?.trim() || "";
+      const birthDate = fd.get("birth_date") || "";
+      const idType    = parseInt(fd.get("ticket_type"), 10);
+      const count     = parseInt(fd.get("count"), 10);
       if (!idType) return;
+      const selectedOpt = sel.options[sel.selectedIndex];
+      const price = parseInt(selectedOpt?.dataset.price || "0", 10);
+
+      // Вычисляем возраст из даты рождения и обновляем профиль
+      const profilePatch = {};
+      if (name)    profilePatch.name    = name;
+      if (surname) profilePatch.surname = surname;
+      if (birthDate) {
+        const born = new Date(birthDate);
+        const age  = Math.floor((Date.now() - born.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (age > 0 && age <= 100) profilePatch.age = age;
+      }
+      if (Object.keys(profilePatch).length) {
+        try { await Auth.patchMe(profilePatch); } catch (_) {}
+      }
+
+      // Сохраняем бронь и переходим на выбор мест
+      const booking = {
+        concertId: parseInt(concertId, 10),
+        concertName: c.name,
+        concertDate: c.date,
+        idType,
+        ticketTypeName: selectedOpt?.text.split(" —")[0] || "",
+        count,
+        price,
+        seats: [],
+        expiresAt: Date.now() + 15 * 60 * 1000, // 15 минут
+      };
+      sessionStorage.setItem("ticketBooking", JSON.stringify(booking));
+      navigate("#/seats/" + concertId);
+    });
+
+    renderLayout(wrap, paintGen);
+  }
+
+  // ── Страница выбора мест (шаг 2 — карта зала) ──────────────────────────────
+
+  async function renderSeats(concertId, paintGen) {
+    const user = await loadUser();
+    if (paintGen !== routeGeneration) return;
+    if (!user) { navigate("#/login"); return; }
+
+    let c, layout;
+    try {
+      c = await Concerts.get(concertId);
+      layout = await Concerts.hallLayout(concertId);
+    } catch (e) {
+      renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
+      return;
+    }
+    if (paintGen !== routeGeneration) return;
+
+    if (c.sales_paused) {
+      renderLayout(
+        `<div class="error-box">Продажи на это мероприятие приостановлены.</div>
+         <p><a href="#/concert/${concertId}">← Назад</a></p>`,
+        paintGen
+      );
+      return;
+    }
+
+    const occupiedSet = new Set(layout.occupied.map(([r, s]) => `${r}:${s}`));
+
+    // Selection state: either seated seats from ONE zone OR a dance-count from ONE zone.
+    // selection = { zone, kind: "seated", seats: Set<"row:seat"> } or
+    //             { zone, kind: "dance", count: N } or null
+    let selection = null;
+
+    const wrap = el("<div></div>");
+    wrap.innerHTML = `
+      <h1>Выбор мест</h1>
+      <p class="muted">${escapeHtml(c.name)} · ${formatDate(c.date)}</p>
+
+      <div class="seatmap-info">
+        <div>Выбранная зона: <strong id="sel-zone">—</strong></div>
+        <div>Выбрано: <strong id="sel-count">0</strong></div>
+        <div>Итого: <strong id="sel-total">0 ₽</strong></div>
+      </div>
+
+      <div class="seatmap-legend">
+        ${layout.zones.map(z => `
+          <span class="legend-item">
+            <span class="legend-swatch" style="background:${z.color}"></span>
+            ${escapeHtml(z.name)} · ${z.price} ₽
+          </span>
+        `).join("")}
+        <span class="legend-item">
+          <span class="legend-swatch" style="background:#3b3f4d"></span>Занято
+        </span>
+        <span class="legend-item">
+          <span class="legend-swatch" style="background:#ffffff;border:2px solid #7c6cf0"></span>Выбрано
+        </span>
+      </div>
+
+      <div class="seatmap">
+        <div class="seatmap-stage">СЦЕНА</div>
+        <div id="seatmap-body"></div>
+      </div>
+
+      <div class="actions" style="margin-top:1.25rem">
+        <button type="button" class="btn btn-primary" id="btn-to-pay" disabled>Перейти к оформлению →</button>
+        <button type="button" class="btn btn-ghost" id="btn-back-seats">← К мероприятию</button>
+      </div>
+    `;
+
+    const body = wrap.querySelector("#seatmap-body");
+    const zoneByKey = new Map(); // "row:seat" -> zone (seated only)
+    const seatedKeyToBtn = new Map();
+
+    for (const z of layout.zones) {
+      const block = document.createElement("div");
+      block.className = "seatmap-zone seatmap-zone-" + z.role;
+      const header = document.createElement("div");
+      header.className = "seatmap-zone-title";
+      header.textContent = `${z.name} — ${z.price} ₽ · осталось ${z.remains}`;
+      block.appendChild(header);
+
+      if (z.role === "dance") {
+        // Single big clickable circle for dance floor
+        const holder = document.createElement("div");
+        holder.className = "seatmap-dance-holder";
+        const circle = document.createElement("button");
+        circle.type = "button";
+        circle.className = "dance-circle";
+        circle.style.background = z.color;
+        circle.dataset.zoneId = z.id_hall_zone;
+        circle.innerHTML = `<span class="dance-circle-label">${escapeHtml(z.name)}</span>
+                            <span class="dance-circle-sub">нажмите, чтобы выбрать</span>`;
+        if (z.remains <= 0) {
+          circle.disabled = true;
+          circle.classList.add("dance-circle-sold");
+          circle.querySelector(".dance-circle-sub").textContent = "распродано";
+        }
+        circle.addEventListener("click", () => openDanceModal(z));
+        holder.appendChild(circle);
+        block.appendChild(holder);
+      } else {
+        const rowMap = new Map();
+        for (const p of z.seats) {
+          if (!rowMap.has(p.row)) rowMap.set(p.row, []);
+          rowMap.get(p.row).push(p);
+        }
+        const sortedRows = [...rowMap.keys()].sort((a, b) => a - b);
+        for (const r of sortedRows) {
+          const rowEl = document.createElement("div");
+          rowEl.className = "seatmap-row";
+          const label = document.createElement("span");
+          label.className = "seatmap-row-label";
+          label.textContent = "Ряд " + r;
+          rowEl.appendChild(label);
+          const seats = rowMap.get(r).sort((a, b) => a.seat - b.seat);
+          for (const p of seats) {
+            const key = `${p.row}:${p.seat}`;
+            zoneByKey.set(key, z);
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "seat seat-" + z.role;
+            btn.dataset.key = key;
+            btn.style.background = z.color;
+            btn.title = `Ряд ${p.row}, место ${p.seat} — ${z.price} ₽`;
+            btn.textContent = p.seat;
+            if (occupiedSet.has(key)) {
+              btn.classList.add("seat-occupied");
+              btn.disabled = true;
+            }
+            rowEl.appendChild(btn);
+            seatedKeyToBtn.set(key, btn);
+          }
+          block.appendChild(rowEl);
+        }
+      }
+      body.appendChild(block);
+    }
+
+    function refreshSummary() {
+      const zoneEl  = wrap.querySelector("#sel-zone");
+      const cntEl   = wrap.querySelector("#sel-count");
+      const totEl   = wrap.querySelector("#sel-total");
+      const btnPay  = wrap.querySelector("#btn-to-pay");
+      if (!selection) {
+        zoneEl.textContent = "—";
+        cntEl.textContent = "0";
+        totEl.textContent = "0 ₽";
+        btnPay.disabled = true;
+        return;
+      }
+      zoneEl.textContent = selection.zone.name;
+      const count = selection.kind === "dance" ? selection.count : selection.seats.size;
+      cntEl.textContent = String(count);
+      totEl.textContent = (count * selection.zone.price) + " ₽";
+      btnPay.disabled = count <= 0;
+    }
+
+    function clearSeatedSelectionVisual() {
+      for (const btn of seatedKeyToBtn.values()) btn.classList.remove("seat-selected");
+    }
+
+    function startSeatedSelection(zone) {
+      selection = { zone, kind: "seated", seats: new Set() };
+    }
+
+    async function maybeSwitchZone(newZone, newKind) {
+      if (!selection) return true;
+      const sameZone = selection.zone.id_hall_zone === newZone.id_hall_zone && selection.kind === newKind;
+      if (sameZone) return true;
+      if (!confirm("Вы уже выбирали места в другой зоне. Сбросить выбор и переключиться на «" + newZone.name + "»?")) {
+        return false;
+      }
+      clearSeatedSelectionVisual();
+      selection = null;
+      return true;
+    }
+
+    body.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest(".seat");
+      if (!btn || btn.disabled) return;
+      const key = btn.dataset.key;
+      const zone = zoneByKey.get(key);
+      if (!zone) return;
+      const ok = await maybeSwitchZone(zone, "seated");
+      if (!ok) return;
+      if (!selection) startSeatedSelection(zone);
+      if (selection.seats.has(key)) {
+        selection.seats.delete(key);
+        btn.classList.remove("seat-selected");
+      } else {
+        selection.seats.add(key);
+        btn.classList.add("seat-selected");
+      }
+      if (selection.kind === "seated" && selection.seats.size === 0) selection = null;
+      refreshSummary();
+    });
+
+    function openDanceModal(zone) {
+      // Confirm zone switch if needed
+      maybeSwitchZone(zone, "dance").then((ok) => {
+        if (!ok) return;
+        const startCount = (selection && selection.kind === "dance" && selection.zone.id_hall_zone === zone.id_hall_zone)
+          ? selection.count : 1;
+        const maxCount = Math.max(1, zone.remains);
+        const modal = el(`
+          <div class="modal-overlay" id="_dance-modal">
+            <div class="modal-card" style="max-width:380px">
+              <h3 style="margin-top:0">${escapeHtml(zone.name)}</h3>
+              <p class="muted" style="margin:0 0 1rem">Цена за 1 билет: <strong>${zone.price} ₽</strong></p>
+              <div class="dance-counter">
+                <button type="button" class="btn btn-ghost" id="_dc-minus">−</button>
+                <input type="number" id="_dc-count" min="1" max="${maxCount}" value="${startCount}" />
+                <button type="button" class="btn btn-ghost" id="_dc-plus">+</button>
+              </div>
+              <p class="muted" style="margin:0.75rem 0">Доступно: ${zone.remains}</p>
+              <p style="font-size:1.1rem;margin:0 0 1rem">Итого: <strong id="_dc-total">${zone.price * startCount} ₽</strong></p>
+              <div class="actions">
+                <button type="button" class="btn btn-primary" id="_dc-ok">Выбрать</button>
+                <button type="button" class="btn btn-ghost" id="_dc-cancel">Отмена</button>
+              </div>
+            </div>
+          </div>
+        `);
+        document.body.appendChild(modal);
+        const input = modal.querySelector("#_dc-count");
+        const totalEl = modal.querySelector("#_dc-total");
+        const clamp = () => {
+          let v = parseInt(input.value, 10);
+          if (isNaN(v) || v < 1) v = 1;
+          if (v > maxCount) v = maxCount;
+          input.value = String(v);
+          totalEl.textContent = (v * zone.price) + " ₽";
+        };
+        modal.querySelector("#_dc-minus").addEventListener("click", () => { input.value = String(parseInt(input.value, 10) - 1); clamp(); });
+        modal.querySelector("#_dc-plus").addEventListener("click",  () => { input.value = String(parseInt(input.value, 10) + 1); clamp(); });
+        input.addEventListener("input", clamp);
+        const close = () => modal.remove();
+        modal.querySelector("#_dc-cancel").addEventListener("click", close);
+        modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+        modal.querySelector("#_dc-ok").addEventListener("click", () => {
+          clamp();
+          const v = parseInt(input.value, 10);
+          clearSeatedSelectionVisual();
+          selection = { zone, kind: "dance", count: v };
+          refreshSummary();
+          close();
+        });
+      });
+    }
+
+    wrap.querySelector("#btn-back-seats").addEventListener("click", () => {
+      navigate("#/concert/" + concertId);
+    });
+
+    wrap.querySelector("#btn-to-pay").addEventListener("click", () => {
+      if (!selection) return;
+      const zone = selection.zone;
+      const count = selection.kind === "dance" ? selection.count : selection.seats.size;
+      if (count <= 0) return;
+      const seatsArr = selection.kind === "seated"
+        ? [...selection.seats].map((k) => k.split(":").map(Number))
+        : [];
+      const booking = {
+        concertId: parseInt(concertId, 10),
+        concertName: c.name,
+        concertDate: c.date,
+        idType: zone.id_ticket_type,
+        ticketTypeName: zone.name,
+        zoneRole: zone.role,
+        count,
+        price: zone.price,
+        seats: seatsArr,
+        expiresAt: Date.now() + 15 * 60 * 1000,
+      };
+      sessionStorage.setItem("ticketBooking", JSON.stringify(booking));
+      navigate("#/checkout");
+    });
+
+    refreshSummary();
+    renderLayout(wrap, paintGen);
+  }
+
+  // ── Страница оплаты (шаг 3 — таймер + подтверждение) ────────────────────────
+
+  async function renderCheckout(paintGen) {
+    const user = await loadUser();
+    if (paintGen !== routeGeneration) return;
+    if (!user) { navigate("#/login"); return; }
+
+    const bookingRaw = sessionStorage.getItem("ticketBooking");
+    if (!bookingRaw) {
+      renderLayout('<div class="error-box">Бронь не найдена. Выберите билет снова.</div><p><a href="#/">← На главную</a></p>', paintGen);
+      return;
+    }
+    const booking = JSON.parse(bookingRaw);
+
+    // Проверяем не истекла ли бронь ещё до рендера
+    if (Date.now() > booking.expiresAt) {
+      sessionStorage.removeItem("ticketBooking");
+      renderLayout(
+        `<div class="error-box">Время бронирования истекло. Пожалуйста, начните оформление заново.</div>
+         <p><a href="#/concert/${booking.concertId}">← К мероприятию</a></p>`,
+        paintGen
+      );
+      return;
+    }
+
+    const total = booking.price * booking.count;
+
+    const prefillName    = escapeHtml(user.name    || "");
+    const prefillSurname = escapeHtml(user.surname || "");
+
+    const wrap = el("<div></div>");
+    wrap.innerHTML = `
+      <h1>Оформление билета</h1>
+      <div class="checkout-timer-wrap">
+        <span class="checkout-timer-label">Бронь действует:</span>
+        <span id="checkout-timer" class="checkout-timer">15:00</span>
+      </div>
+      <form id="checkout-form" style="max-width:520px;margin-top:1.5rem">
+        <div class="card" style="margin-bottom:1.25rem">
+          <h2 style="margin-top:0;font-size:1.05rem">Данные покупателя</h2>
+          <div class="form-row">
+            <label>Имя <span style="color:var(--danger)">*</span></label>
+            <input name="name" value="${prefillName}" required placeholder="Введите имя">
+          </div>
+          <div class="form-row">
+            <label>Фамилия <span style="color:var(--danger)">*</span></label>
+            <input name="surname" value="${prefillSurname}" required placeholder="Введите фамилию">
+          </div>
+          <div class="form-row">
+            <label>Дата рождения <span style="color:var(--danger)">*</span></label>
+            <input name="birth_date" type="date" required>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:1.25rem">
+          <h2 style="margin-top:0;font-size:1.05rem">Ваш заказ</h2>
+          <table class="checkout-summary">
+            <tr><td class="muted">Концерт</td><td><strong>${escapeHtml(booking.concertName)}</strong></td></tr>
+            <tr><td class="muted">Дата</td><td>${formatDate(booking.concertDate)}</td></tr>
+            <tr><td class="muted">Тип билета</td><td>${escapeHtml(booking.ticketTypeName)}</td></tr>
+            <tr><td class="muted">Количество</td><td>${booking.count} шт.</td></tr>
+            ${(booking.seats && booking.seats.length) ? `<tr><td class="muted">Места</td><td>${booking.seats.map(([r, s]) => `Р${r}-М${s}`).join(", ")}</td></tr>` : ""}
+            <tr class="checkout-total"><td>Итого</td><td><strong>${total} ₽</strong></td></tr>
+          </table>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary" id="btn-pay">Оплатить ${total} ₽</button>
+          <button type="button" class="btn btn-ghost" id="btn-back-booking">← К выбору мест</button>
+        </div>
+      </form>
+    `;
+
+    // Таймер обратного отсчёта
+    const timerEl = wrap.querySelector("#checkout-timer");
+    let timerInterval = null;
+
+    function updateTimer() {
+      const left = booking.expiresAt - Date.now();
+      if (left <= 0) {
+        clearInterval(timerInterval);
+        sessionStorage.removeItem("ticketBooking");
+        renderLayout(
+          `<div class="error-box">Время бронирования истекло. Пожалуйста, начните оформление заново.</div>
+           <p><a href="#/concert/${booking.concertId}">← К мероприятию</a></p>`,
+          paintGen
+        );
+        return;
+      }
+      const m = Math.floor(left / 60000);
+      const s = Math.floor((left % 60000) / 1000);
+      timerEl.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+      timerEl.classList.toggle("checkout-timer-urgent", left < 60000);
+    }
+
+    updateTimer();
+    timerInterval = setInterval(updateTimer, 1000);
+
+    // Останавливаем таймер при уходе со страницы
+    const stopTimer = () => clearInterval(timerInterval);
+    window.addEventListener("hashchange", stopTimer, { once: true });
+
+    // Кнопка «Назад» — сохраняем бронь, возвращаем на схему зала
+    wrap.querySelector("#btn-back-booking").addEventListener("click", () => {
+      stopTimer();
+      navigate("#/buy/" + booking.concertId);
+    });
+
+    // Отправка формы оформления → оплата
+    wrap.querySelector("#checkout-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      if (Date.now() > booking.expiresAt) {
+        stopTimer();
+        sessionStorage.removeItem("ticketBooking");
+        renderLayout(
+          `<div class="error-box">Время бронирования истекло.</div>
+           <p><a href="#/concert/${booking.concertId}">← К мероприятию</a></p>`,
+          paintGen
+        );
+        return;
+      }
+      const fd = new FormData(ev.target);
+      const name      = (fd.get("name") || "").toString().trim();
+      const surname   = (fd.get("surname") || "").toString().trim();
+      const birthDate = (fd.get("birth_date") || "").toString();
+
+      // Обновляем профиль покупателя (имя/фамилия/возраст)
+      const profilePatch = {};
+      if (name)    profilePatch.name    = name;
+      if (surname) profilePatch.surname = surname;
+      if (birthDate) {
+        const born = new Date(birthDate);
+        const age  = Math.floor((Date.now() - born.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (age > 0 && age <= 100) profilePatch.age = age;
+      }
+      if (Object.keys(profilePatch).length) {
+        try { await Auth.patchMe(profilePatch); } catch (_) {}
+      }
+
+      const payBtn = wrap.querySelector("#btn-pay");
+      payBtn.disabled = true;
       try {
         await Sales.buy({
-          id_concert: parseInt(concertId, 10),
-          id_ticket_type: idType,
-          count,
+          id_concert: booking.concertId,
+          id_ticket_type: booking.idType,
+          count: booking.count,
+          seats: booking.seats && booking.seats.length ? booking.seats : null,
         });
-        alert("Покупка оформлена!");
-        navigate("#/profile");
+        stopTimer();
+        sessionStorage.removeItem("ticketBooking");
+        showSuccessModal(
+          "Поздравляем с покупкой!",
+          `Вы приобрели билеты на концерт <strong>${escapeHtml(booking.concertName)}</strong>.<br><br>
+           Ваши билеты отправлены вам на почту.`,
+          () => navigate("#/profile")
+        );
       } catch (e) {
+        payBtn.disabled = false;
         alert(e.message);
       }
     });
+
     renderLayout(wrap, paintGen);
   }
 
@@ -509,21 +1176,9 @@
     }
     if (paintGen !== routeGeneration) return;
 
+    const hallById = new Map(halls.map((h) => [h.id_hall, h]));
     const hallOpts = halls.map((h) => `<option value="${h.id_hall}">${escapeHtml(h.name)}</option>`).join("");
-    const rows = concerts
-      .map(
-        (c) => `
-    <tr data-id="${c.id_concert}">
-      <td>${escapeHtml(c.name)}</td>
-      <td>${formatDate(c.date)}</td>
-      <td>${c.sales_paused ? '<span class="badge warn">Стоп</span>' : '<span class="badge ok">Ок</span>'}</td>
-      <td>
-        <button type="button" class="btn btn-ghost btn-edit" data-id="${c.id_concert}">Изменить</button>
-        <button type="button" class="btn btn-danger btn-del" data-id="${c.id_concert}">Удалить</button>
-      </td>
-    </tr>`
-      )
-      .join("");
+    const hallFilterOpts = '<option value="">Все залы</option>' + hallOpts;
 
     const wrap = el("<div></div>");
     wrap.innerHTML = `
@@ -534,12 +1189,26 @@
       <div class="form-row"><label>Дата и время</label><input name="date" type="datetime-local" required></div>
       <div class="form-row"><label>Зал</label><select name="id_hall" required>${hallOpts}</select></div>
       <div class="form-row"><label>Описание</label><textarea name="description"></textarea></div>
-      <div class="form-row"><label><input type="checkbox" name="sales_paused"> Продажи остановлены</label></div>
+      <div class="form-row form-row-check">
+        <label class="check-label"><input type="checkbox" name="sales_paused"> Продажи остановлены</label>
+      </div>
       <button type="submit" class="btn btn-primary">Создать</button>
     </form>
+
+    <div class="admin-filters">
+      <input type="search" id="flt-q" placeholder="Поиск по названию или описанию…" />
+      <select id="flt-hall">${hallFilterOpts}</select>
+      <select id="flt-status">
+        <option value="">Все статусы</option>
+        <option value="ok">Продажи идут</option>
+        <option value="paused">Остановлены</option>
+      </select>
+      <button type="button" class="btn btn-ghost" id="flt-reset">Сбросить</button>
+    </div>
+
     <div class="table-wrap">
-      <table><thead><tr><th>Название</th><th>Дата</th><th>Продажи</th><th></th></tr></thead>
-      <tbody id="admin-concerts-body">${rows}</tbody></table>
+      <table class="admin-table"><thead><tr><th>Название</th><th>Дата</th><th>Зал</th><th>Продажи</th><th></th></tr></thead>
+      <tbody id="admin-concerts-body"></tbody></table>
     </div>
     <p style="margin-top:1rem"><a href="#/admin">← Админ</a></p>
     <dialog id="edit-dlg" style="border:none;border-radius:12px;padding:0;max-width:480px;width:90%">
@@ -550,7 +1219,9 @@
         <div class="form-row"><label>Дата</label><input name="date" type="datetime-local" required></div>
         <div class="form-row"><label>Зал</label><select name="id_hall">${hallOpts}</select></div>
         <div class="form-row"><label>Описание</label><textarea name="description"></textarea></div>
-        <div class="form-row"><label><input type="checkbox" name="sales_paused"> Продажи остановлены</label></div>
+        <div class="form-row form-row-check">
+          <label class="check-label"><input type="checkbox" name="sales_paused"> Продажи остановлены</label>
+        </div>
         <div class="actions">
           <button type="submit" class="btn btn-primary">Сохранить</button>
           <button type="button" class="btn btn-ghost" id="edit-cancel">Отмена</button>
@@ -558,6 +1229,47 @@
       </form>
     </dialog>
   `;
+
+    const tbody = wrap.querySelector("#admin-concerts-body");
+    function rowHtml(c) {
+      const hall = hallById.get(c.id_hall);
+      return `
+        <tr data-id="${c.id_concert}">
+          <td><strong>${escapeHtml(c.name)}</strong></td>
+          <td>${formatDate(c.date)}</td>
+          <td>${escapeHtml(hall ? hall.name : "—")}</td>
+          <td>${c.sales_paused ? '<span class="badge warn">Стоп</span>' : '<span class="badge ok">Ок</span>'}</td>
+          <td>
+            <button type="button" class="btn btn-ghost btn-edit" data-id="${c.id_concert}">Изменить</button>
+            <button type="button" class="btn btn-danger btn-del" data-id="${c.id_concert}">Удалить</button>
+          </td>
+        </tr>`;
+    }
+    function applyFilters() {
+      const q = (wrap.querySelector("#flt-q").value || "").trim().toLowerCase();
+      const hallFlt = wrap.querySelector("#flt-hall").value;
+      const statusFlt = wrap.querySelector("#flt-status").value;
+      const filtered = concerts.filter((c) => {
+        if (q && !((c.name || "").toLowerCase().includes(q) || (c.description || "").toLowerCase().includes(q))) return false;
+        if (hallFlt && String(c.id_hall) !== hallFlt) return false;
+        if (statusFlt === "ok" && c.sales_paused) return false;
+        if (statusFlt === "paused" && !c.sales_paused) return false;
+        return true;
+      });
+      tbody.innerHTML = filtered.length
+        ? filtered.map(rowHtml).join("")
+        : '<tr><td colspan="5" class="muted" style="text-align:center">Ничего не найдено</td></tr>';
+      attachRowHandlers();
+    }
+    wrap.querySelector("#flt-q").addEventListener("input", applyFilters);
+    wrap.querySelector("#flt-hall").addEventListener("change", applyFilters);
+    wrap.querySelector("#flt-status").addEventListener("change", applyFilters);
+    wrap.querySelector("#flt-reset").addEventListener("click", () => {
+      wrap.querySelector("#flt-q").value = "";
+      wrap.querySelector("#flt-hall").value = "";
+      wrap.querySelector("#flt-status").value = "";
+      applyFilters();
+    });
 
     function toLocalInput(iso) {
       const d = new Date(iso);
@@ -591,19 +1303,32 @@
 
     wrap.querySelector("#edit-cancel").addEventListener("click", () => dlg.close());
 
-    wrap.querySelectorAll(".btn-edit").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = parseInt(btn.dataset.id, 10);
-        const c = await Concerts.get(id);
-        editForm.querySelector('input[name="cid"]').value = String(c.id_concert);
-        editForm.name.value = c.name;
-        editForm.date.value = toLocalInput(c.date);
-        editForm.id_hall.value = String(c.id_hall);
-        editForm.description.value = c.description || "";
-        editForm.sales_paused.checked = !!c.sales_paused;
-        dlg.showModal();
+    function attachRowHandlers() {
+      tbody.querySelectorAll(".btn-edit").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = parseInt(btn.dataset.id, 10);
+          const c = await Concerts.get(id);
+          editForm.querySelector('input[name="cid"]').value = String(c.id_concert);
+          editForm.name.value = c.name;
+          editForm.date.value = toLocalInput(c.date);
+          editForm.id_hall.value = String(c.id_hall);
+          editForm.description.value = c.description || "";
+          editForm.sales_paused.checked = !!c.sales_paused;
+          dlg.showModal();
+        });
       });
-    });
+      tbody.querySelectorAll(".btn-del").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          if (!confirm("Удалить концерт?")) return;
+          try {
+            await Concerts.delete(parseInt(btn.dataset.id, 10));
+            location.reload();
+          } catch (e) {
+            alert(e.message);
+          }
+        });
+      });
+    }
 
     editForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -625,18 +1350,7 @@
       }
     });
 
-    wrap.querySelectorAll(".btn-del").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("Удалить концерт?")) return;
-        try {
-          await Concerts.delete(parseInt(btn.dataset.id, 10));
-          location.reload();
-        } catch (e) {
-          alert(e.message);
-        }
-      });
-    });
-
+    applyFilters();
     renderLayout(wrap, paintGen);
   }
 
@@ -652,62 +1366,116 @@ async function renderAdminSales(paintGen) {
     return;
   }
 
-  // Загружаем продажи с учетом текущего лимита
   let sales = [];
   try {
-    // В api.js метод должен принимать лимит: Admin.recentSales(limit)
     sales = await Admin.recentSales(salesLimit);
   } catch (e) {
     renderLayout(`<div class="error-box">${escapeHtml(e.message)}</div>`, paintGen);
     return;
   }
-
   if (paintGen !== routeGeneration) return;
 
-  const rows = sales.map((s) => `
-    <tr>
-      <td>${formatDate(s.created_at || s.sale_date)}</td>
-      <td>${escapeHtml(s.user_email || (s.user && s.user.email) || "—")}</td>
-      <td>${escapeHtml(s.concert_name || (s.concert && s.concert.title) || "—")}</td>
-      <td>${s.count || 1}</td>
-      <td>${s.total_price || 0} ₽</td>
-    </tr>
-  `).join("");
-
-  const html = `
+  const wrap = el("<div></div>");
+  wrap.innerHTML = `
     <div class="admin-container">
       <h1>Недавние покупки билетов</h1>
+
+      <div class="admin-filters">
+        <input type="search" id="flt-q" placeholder="Поиск по e-mail или концерту…" />
+        <select id="flt-sum">
+          <option value="">Любая сумма</option>
+          <option value="lt1000">До 1 000 ₽</option>
+          <option value="1000-5000">1 000 – 5 000 ₽</option>
+          <option value="gt5000">Больше 5 000 ₽</option>
+        </select>
+        <select id="flt-period">
+          <option value="">Всё время</option>
+          <option value="today">Сегодня</option>
+          <option value="week">За 7 дней</option>
+          <option value="month">За 30 дней</option>
+        </select>
+        <button type="button" class="btn btn-ghost" id="flt-reset">Сбросить</button>
+      </div>
+
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
             <tr><th>Дата</th><th>Пользователь</th><th>Концерт</th><th>Билетов</th><th>Сумма</th></tr>
           </thead>
-          <tbody>
-            ${rows || '<tr><td colspan="5" class="muted">Нет данных</td></tr>'}
-          </tbody>
+          <tbody id="admin-sales-body"></tbody>
         </table>
       </div>
 
-      <div style="text-align: center; margin-top: 20px;">
-        <button id="load-more-sales" class="btn-secondary" style="${sales.length < salesLimit ? 'display:none' : ''}">
-          Показать еще
+      <div style="text-align:center;margin-top:1.25rem">
+        <button id="load-more-sales" class="btn btn-ghost" style="${sales.length < salesLimit ? 'display:none' : ''}">
+          Показать ещё
         </button>
       </div>
 
-      <p style="margin-top: 20px;"><a href="#/">← В админ-панель</a></p>
+      <p style="margin-top:1rem"><a href="#/admin">← Админ</a></p>
     </div>
   `;
 
-  renderLayout(html, paintGen);
-
-  // Вешаем обработчик на кнопку "Показать еще"
-  const loadMoreBtn = document.getElementById("load-more-sales");
-  if (loadMoreBtn) {
-    loadMoreBtn.onclick = async () => {
-      salesLimit += 10; // Увеличиваем лимит
-      await renderAdminSales(paintGen); // Перерисовываем страницу
-    };
+  const tbody = wrap.querySelector("#admin-sales-body");
+  function rowHtml(s) {
+    const dt = s.created_at || s.sale_date;
+    return `
+      <tr>
+        <td>${dt ? formatDate(dt) : "—"}</td>
+        <td>${escapeHtml(s.user_email || (s.user && s.user.email) || "—")}</td>
+        <td>${escapeHtml(s.concert_name || (s.concert && s.concert.title) || "—")}</td>
+        <td>${s.count || 1}</td>
+        <td><strong>${s.total_price || 0} ₽</strong></td>
+      </tr>
+    `;
   }
+  function applyFilters() {
+    const q = (wrap.querySelector("#flt-q").value || "").trim().toLowerCase();
+    const sumF = wrap.querySelector("#flt-sum").value;
+    const per = wrap.querySelector("#flt-period").value;
+    const now = Date.now();
+    const filtered = sales.filter((s) => {
+      const email = (s.user_email || (s.user && s.user.email) || "").toLowerCase();
+      const cname = (s.concert_name || (s.concert && s.concert.title) || "").toLowerCase();
+      if (q && !email.includes(q) && !cname.includes(q)) return false;
+      const sum = s.total_price || 0;
+      if (sumF === "lt1000"     && !(sum < 1000))                   return false;
+      if (sumF === "1000-5000"  && !(sum >= 1000 && sum <= 5000))   return false;
+      if (sumF === "gt5000"     && !(sum > 5000))                   return false;
+      if (per) {
+        const d = new Date(s.created_at || s.sale_date).getTime();
+        if (isNaN(d)) return false;
+        const diff = now - d;
+        if (per === "today" && diff > 24 * 3600 * 1000)        return false;
+        if (per === "week"  && diff > 7 * 24 * 3600 * 1000)    return false;
+        if (per === "month" && diff > 30 * 24 * 3600 * 1000)   return false;
+      }
+      return true;
+    });
+    tbody.innerHTML = filtered.length
+      ? filtered.map(rowHtml).join("")
+      : '<tr><td colspan="5" class="muted" style="text-align:center">Ничего не найдено</td></tr>';
+  }
+  wrap.querySelector("#flt-q").addEventListener("input", applyFilters);
+  wrap.querySelector("#flt-sum").addEventListener("change", applyFilters);
+  wrap.querySelector("#flt-period").addEventListener("change", applyFilters);
+  wrap.querySelector("#flt-reset").addEventListener("click", () => {
+    wrap.querySelector("#flt-q").value = "";
+    wrap.querySelector("#flt-sum").value = "";
+    wrap.querySelector("#flt-period").value = "";
+    applyFilters();
+  });
+
+  const loadMore = wrap.querySelector("#load-more-sales");
+  if (loadMore) {
+    loadMore.addEventListener("click", async () => {
+      salesLimit += 10;
+      await renderAdminSales(paintGen);
+    });
+  }
+
+  applyFilters();
+  renderLayout(wrap, paintGen);
 }
 async function renderAdminHalls(paintGen) {
   const user = await loadUser();
@@ -726,34 +1494,90 @@ async function renderAdminHalls(paintGen) {
     return;
   }
 
-  const rows = halls.map(h => `
-    <tr>
-      <td>${h.id}</td>
-      <td><strong>${escapeHtml(h.name)}</strong></td>
-      <td>${escapeHtml(h.address || "—")}</td>
-      <td>${h.capacity || "—"} чел.</td>
-      <td>
-        <button class="btn-danger" onclick="deleteHall(${h.id}, ${paintGen})">Удалить</button>
-      </td>
-    </tr>
-  `).join("");
-
-  renderLayout(`
+  const wrap = el("<div></div>");
+  wrap.innerHTML = `
     <div class="admin-container">
       <h1>Управление залами</h1>
+
+      <div class="admin-filters">
+        <input type="search" id="flt-q" placeholder="Поиск по названию или адресу…" />
+        <select id="flt-cap">
+          <option value="">Любая вместимость</option>
+          <option value="small">Маленькие (до 500)</option>
+          <option value="medium">Средние (500–2000)</option>
+          <option value="large">Большие (от 2000)</option>
+        </select>
+        <button type="button" class="btn btn-ghost" id="flt-reset">Сбросить</button>
+      </div>
+
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>ID</th><th>Название</th><th>Адрес</th><th>Вместимость</th><th>Действия</th></tr>
+            <tr><th>ID</th><th>Название</th><th>Адрес</th><th>Телефон</th><th>Вместимость</th><th>Схема</th><th>Действия</th></tr>
           </thead>
-          <tbody>
-            ${rows || '<tr><td colspan="5">Залов пока нет</td></tr>'}
-          </tbody>
+          <tbody id="admin-halls-body"></tbody>
         </table>
       </div>
-      <p><a href="#/" class="btn-secondary">← Назад</a></p>
+      <p style="margin-top:1rem"><a href="#/admin">← Админ</a></p>
     </div>
-  `, paintGen);
+  `;
+
+  const tbody = wrap.querySelector("#admin-halls-body");
+  function rowHtml(h) {
+    const cap = h.seatsAmount != null ? `${h.seatsAmount} чел.` : "—";
+    const scheme = `${h.scheme || "classic"} · ${h.rows_count || "?"}×${h.seats_per_row || "?"}`;
+    return `
+      <tr>
+        <td class="muted">#${h.id_hall}</td>
+        <td><strong>${escapeHtml(h.name)}</strong></td>
+        <td>${escapeHtml(h.address || "—")}</td>
+        <td>${escapeHtml(h.phone || "—")}</td>
+        <td>${cap}</td>
+        <td class="muted">${escapeHtml(scheme)}</td>
+        <td>
+          <button type="button" class="btn btn-danger btn-del" data-id="${h.id_hall}">Удалить</button>
+        </td>
+      </tr>
+    `;
+  }
+  function applyFilters() {
+    const q = (wrap.querySelector("#flt-q").value || "").trim().toLowerCase();
+    const cap = wrap.querySelector("#flt-cap").value;
+    const filtered = halls.filter((h) => {
+      if (q) {
+        const hay = `${h.name || ""} ${h.address || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      const s = h.seatsAmount || 0;
+      if (cap === "small"  && !(s > 0   && s < 500))   return false;
+      if (cap === "medium" && !(s >= 500 && s <= 2000)) return false;
+      if (cap === "large"  && !(s > 2000))               return false;
+      return true;
+    });
+    tbody.innerHTML = filtered.length
+      ? filtered.map(rowHtml).join("")
+      : '<tr><td colspan="7" class="muted" style="text-align:center">Ничего не найдено</td></tr>';
+    tbody.querySelectorAll(".btn-del").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Удалить этот зал?")) return;
+        try {
+          await Halls.delete(parseInt(btn.dataset.id, 10));
+          await renderAdminHalls(paintGen);
+        } catch (e) {
+          alert("Ошибка при удалении: " + e.message);
+        }
+      });
+    });
+  }
+  wrap.querySelector("#flt-q").addEventListener("input", applyFilters);
+  wrap.querySelector("#flt-cap").addEventListener("change", applyFilters);
+  wrap.querySelector("#flt-reset").addEventListener("click", () => {
+    wrap.querySelector("#flt-q").value = "";
+    wrap.querySelector("#flt-cap").value = "";
+    applyFilters();
+  });
+  applyFilters();
+  renderLayout(wrap, paintGen);
 }
 
 
@@ -780,33 +1604,103 @@ async function renderAdminGroups(paintGen) {
     return;
   }
 
-  const rows = groups.map(g => `
-    <tr>
-      <td>${g.id}</td>
-      <td><strong>${escapeHtml(g.name)}</strong></td>
-      <td>${escapeHtml(g.description || "Без описания")}</td>
-      <td>
-        <button class="btn-danger" onclick="deleteGroup(${g.id}, ${paintGen})">Удалить</button>
-      </td>
-    </tr>
-  `).join("");
+  // Unique genre ids for filter dropdown
+  const genreIds = [...new Set(groups.map((g) => g.id_genre).filter((x) => x != null))].sort((a, b) => a - b);
 
-  renderLayout(`
+  const wrap = el("<div></div>");
+  wrap.innerHTML = `
     <div class="admin-container">
       <h1>Музыкальные группы</h1>
+
+      <div class="admin-filters">
+        <input type="search" id="flt-q" placeholder="Поиск по названию или сайту…" />
+        <select id="flt-genre">
+          <option value="">Все жанры</option>
+          ${genreIds.map((gid) => `<option value="${gid}">Жанр #${gid}</option>`).join("")}
+        </select>
+        <select id="flt-albums">
+          <option value="">Любое число альбомов</option>
+          <option value="0">Без альбомов</option>
+          <option value="1-3">1–3</option>
+          <option value="4-9">4–9</option>
+          <option value="10">10 и больше</option>
+        </select>
+        <button type="button" class="btn btn-ghost" id="flt-reset">Сбросить</button>
+      </div>
+
       <div class="table-wrap">
         <table class="admin-table">
           <thead>
-            <tr><th>ID</th><th>Название</th><th>Описание</th><th>Действия</th></tr>
+            <tr><th>ID</th><th>Название</th><th>Альбомов</th><th>Сайт</th><th>Жанр</th><th>Действия</th></tr>
           </thead>
-          <tbody>
-            ${rows || '<tr><td colspan="4">Групп пока нет</td></tr>'}
-          </tbody>
+          <tbody id="admin-groups-body"></tbody>
         </table>
       </div>
-      <p><a href="#/" class="btn-secondary">← Назад</a></p>
+      <p style="margin-top:1rem"><a href="#/admin">← Админ</a></p>
     </div>
-  `, paintGen);
+  `;
+
+  const tbody = wrap.querySelector("#admin-groups-body");
+  function rowHtml(g) {
+    const site = g.site
+      ? `<a href="${escapeHtml(g.site)}" target="_blank" rel="noopener">${escapeHtml(g.site)}</a>`
+      : '<span class="muted">—</span>';
+    return `
+      <tr>
+        <td class="muted">#${g.id_group}</td>
+        <td><strong>${escapeHtml(g.name)}</strong></td>
+        <td>${g.albumCount ?? 0}</td>
+        <td>${site}</td>
+        <td class="muted">#${g.id_genre ?? "—"}</td>
+        <td>
+          <button type="button" class="btn btn-danger btn-del" data-id="${g.id_group}">Удалить</button>
+        </td>
+      </tr>
+    `;
+  }
+  function applyFilters() {
+    const q = (wrap.querySelector("#flt-q").value || "").trim().toLowerCase();
+    const genre = wrap.querySelector("#flt-genre").value;
+    const albums = wrap.querySelector("#flt-albums").value;
+    const filtered = groups.filter((g) => {
+      if (q) {
+        const hay = `${g.name || ""} ${g.site || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (genre && String(g.id_genre) !== genre) return false;
+      const a = g.albumCount || 0;
+      if (albums === "0"    && a !== 0)        return false;
+      if (albums === "1-3"  && !(a >= 1 && a <= 3))  return false;
+      if (albums === "4-9"  && !(a >= 4 && a <= 9))  return false;
+      if (albums === "10"   && !(a >= 10))           return false;
+      return true;
+    });
+    tbody.innerHTML = filtered.length
+      ? filtered.map(rowHtml).join("")
+      : '<tr><td colspan="6" class="muted" style="text-align:center">Ничего не найдено</td></tr>';
+    tbody.querySelectorAll(".btn-del").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Удалить группу? Это может затронуть связанные концерты.")) return;
+        try {
+          await Groups.delete(parseInt(btn.dataset.id, 10));
+          await renderAdminGroups(paintGen);
+        } catch (e) {
+          alert("Ошибка: " + e.message);
+        }
+      });
+    });
+  }
+  wrap.querySelector("#flt-q").addEventListener("input", applyFilters);
+  wrap.querySelector("#flt-genre").addEventListener("change", applyFilters);
+  wrap.querySelector("#flt-albums").addEventListener("change", applyFilters);
+  wrap.querySelector("#flt-reset").addEventListener("click", () => {
+    wrap.querySelector("#flt-q").value = "";
+    wrap.querySelector("#flt-genre").value = "";
+    wrap.querySelector("#flt-albums").value = "";
+    applyFilters();
+  });
+  applyFilters();
+  renderLayout(wrap, paintGen);
 }
 
 // Вспомогательная функция удаления группы
@@ -854,8 +1748,11 @@ window.deleteGroup = async (id, gen) => {
     else if (a === "profile") {
       await renderProfile(paintGen);
     }
-    else if (a === "buy" && b) {
-      await renderBuy(b, paintGen);
+    else if ((a === "buy" || a === "seats") && b) {
+      await renderSeats(b, paintGen);
+    }
+    else if (a === "checkout") {
+      await renderCheckout(paintGen);
     }
     // 3. Обработка админских подстраниц (ссылки из кнопок панели)
     else if (a === "admin") {
@@ -904,9 +1801,15 @@ window.deleteGroup = async (id, gen) => {
       elUser.href = "#";
       elUser.onclick = (ev) => {
         ev.preventDefault();
-        Auth.logout();
-        cachedUser = null;
-        navigate("#/");
+        showConfirmModal(
+          "Выход из аккаунта",
+          "Вы уверены, что хотите выйти?",
+          () => {
+            Auth.logout();
+            cachedUser = null;
+            navigate("#/");
+          }
+        );
       };
     } else {
       elUser.textContent = "Войти";

@@ -26,12 +26,18 @@ class Settings(BaseSettings):
     # CORS
     cors_allow_origins: list[str] = ["*"]
 
-    # Email (SMTP)
+    # Email — Brevo HTTP API
+    brevo_api_key: str | None = None
+    unisender_api_key: str | None = None
+    unisender_list_id: str | None = None
+    email_from: str | None = None
+    email_from_name: str = "Ticketmuse"
+
+    # Email (SMTP) — не используется
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_user: str | None = None
     smtp_password: str | None = None
-    email_from: str | None = None
 
     @model_validator(mode="before")
     @classmethod

@@ -9,6 +9,9 @@ from src.ticketshop.domain.tickets.repo import get_ticket
 from src.ticketshop.domain.tickettypes.repo import get_TicketType
 from src.ticketshop.domain.concerts.repo import get_Concerts
 from src.ticketshop.domain.hall_zone.repo import get_hall_zone
+from src.ticketshop.domain.seat_bookings import repo as seat_repo
+from src.ticketshop.domain.seat_bookings.models import SeatBooking
+from src.ticketshop.messaging.publishers.events import publish_ticket_purchased
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -26,7 +29,8 @@ async def buy_ticket(
 ):
     """Покупка билета: проверяет остатки, списывает их и создаёт запись о продаже."""
     ticket_type_id = purchase.id_ticket_type
-    if not await get_TicketType(session, ticket_type_id):
+    ticket_type_obj = await get_TicketType(session, ticket_type_id)
+    if not ticket_type_obj:
         raise HTTPException(status_code=404, detail="Ticket type not found")
 
     concert_id = purchase.id_concert
@@ -51,6 +55,29 @@ async def buy_ticket(
             detail=f"Not enough tickets. Available: {ticket.remains}, requested: {purchase.count}",
         )
 
+    seats = purchase.seats or []
+    if seats:
+        if len(seats) != purchase.count:
+            raise HTTPException(status_code=400, detail="Seats count does not match purchase count")
+        # validate shape
+        norm_seats: list[tuple[int, int]] = []
+        for pair in seats:
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise HTTPException(status_code=400, detail="Each seat must be [row, seat]")
+            norm_seats.append((int(pair[0]), int(pair[1])))
+        # check none already occupied for this concert
+        occupied = await seat_repo.list_occupied_for_concert(session, concert_id)
+        occupied_set = {(sb.row_num, sb.seat_num) for sb in occupied}
+        for rs in norm_seats:
+            if rs in occupied_set:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Seat row {rs[0]} seat {rs[1]} is already taken",
+                )
+        # no duplicates in request
+        if len(set(norm_seats)) != len(norm_seats):
+            raise HTTPException(status_code=400, detail="Duplicate seats in request")
+
     ticket.remains -= purchase.count
     session.add(ticket)
 
@@ -62,6 +89,34 @@ async def buy_ticket(
         sale_date=datetime.now(),
     )
     result = await repo.create_sale(session, sale)
+
+    if seats:
+        try:
+            for (row_num, seat_num) in norm_seats:
+                session.add(SeatBooking(
+                    id_concert=concert_id,
+                    id_hall_zone=hall_zone.id_hall_zone,
+                    row_num=row_num,
+                    seat_num=seat_num,
+                    id_sale=result.id_sale,
+                ))
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise HTTPException(status_code=409, detail="Failed to reserve seats (conflict)")
+
+    try:
+        await publish_ticket_purchased(
+            email=current_user.email,
+            concert_name=concert.name,
+            concert_date=concert.date.strftime("%d.%m.%Y %H:%M"),
+            ticket_type_name=ticket_type_obj.type,
+            count=purchase.count,
+            total_price=ticket.price * purchase.count,
+        )
+    except Exception:
+        pass  # Не блокируем ответ если очередь недоступна
+
     return result
 
 

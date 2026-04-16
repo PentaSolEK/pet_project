@@ -27,3 +27,4 @@ class TicketPurchaseRequest(BaseModel):
     id_concert: int
     id_ticket_type: int
     count: int = Field(default=1, ge=1)
+    seats: list[list[int]] | None = None  # [[row, seat], ...]

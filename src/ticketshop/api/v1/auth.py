@@ -68,12 +68,9 @@ async def patch_me(
     data = payload.model_dump(exclude_unset=True)
     if data.get("password"):
         current_user.hashed_pass = get_password_hash(data["password"])
-    if "name" in data:
-        current_user.name = data["name"]
-    if "surname" in data:
-        current_user.surname = data["surname"]
-    if "age" in data:
-        current_user.age = data["age"]
+    for field in ("name", "surname", "age"):
+        if field in data:
+            setattr(current_user, field, data[field])
     session.add(current_user)
     await session.commit()
     await session.refresh(current_user)

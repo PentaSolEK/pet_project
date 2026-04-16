@@ -11,11 +11,13 @@ from src.ticketshop.core.config import settings
 from src.ticketshop.core.broker import broker
 from src.ticketshop.api.v1.router import api_router
 from src.ticketshop.messaging.subscribers.user_registered import router as user_registered_router
+from src.ticketshop.messaging.subscribers.ticket_purchased import router as ticket_purchased_router
 from src.ticketshop.db.session import engine
 
 import src.ticketshop.db.base
 
 broker.include_router(user_registered_router)
+broker.include_router(ticket_purchased_router)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 STATIC_DIR = PROJECT_ROOT / "static"
